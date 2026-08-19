@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { translateHerdrRecord } from "./herdr";
+import { logicalKeyFromLegacyInput, translateHerdrRecord } from "./herdr";
 
 describe("Herdr terminal record translation", () => {
   it("hides Herdr's frame vocabulary behind the client interface", () => {
@@ -32,5 +32,17 @@ describe("Herdr terminal record translation", () => {
       type: "occupied",
       message: "terminal already has an attached client; retry with --takeover",
     });
+  });
+});
+
+describe("legacy browser terminal input", () => {
+  it("recovers navigation keys through Herdr's logical encoder", () => {
+    expect(logicalKeyFromLegacyInput("\r")).toBe("enter");
+    expect(logicalKeyFromLegacyInput("\x1b[B")).toBe("down");
+    expect(logicalKeyFromLegacyInput("\x03")).toBe("ctrl+c");
+  });
+
+  it("leaves text input untouched", () => {
+    expect(logicalKeyFromLegacyInput("hello")).toBeUndefined();
   });
 });

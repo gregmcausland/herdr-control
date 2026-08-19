@@ -15,9 +15,9 @@ test("selects and controls a live Herdr pane through xterm", async ({ page }) =>
   });
 
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(bridgeUrl!)}`);
-  await expect(page.getByRole("heading", { name: "Workspaces" })).toBeVisible();
-  await page.getByRole("button").filter({ hasText: paneId! }).click();
-  await expect(page.locator(".terminal-header small")).toHaveText(new RegExp(`${paneId} · Control$`));
+  await expect(page.getByRole("heading", { name: "Herdr Control" })).toBeVisible();
+  await page.getByTitle(paneId!).click();
+  await expect(page.locator(".terminal-header small")).toHaveText("Control");
   await expect(page.locator(".xterm-screen")).toBeVisible();
 
   const input = page.locator(".xterm-helper-textarea");

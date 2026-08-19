@@ -8,8 +8,8 @@ test("keeps the fitted terminal inside its padded desktop frame", async ({ page 
   test.skip(!clientUrl || !bridgeUrl || !paneId, "Live Herdr browser test configuration is not present");
   await page.setViewportSize({ width: 1600, height: 900 });
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(bridgeUrl!)}`);
-  await page.getByRole("button").filter({ hasText: paneId! }).click();
-  await expect(page.locator(".terminal-header small")).toHaveText(new RegExp(`${paneId} · Control$`));
+  await page.getByTitle(paneId!).click();
+  await expect(page.locator(".terminal-header small")).toHaveText("Control");
   await expect(page.locator(".xterm-rows")).toContainText("gregm@servermz");
 
   const geometry = await page.evaluate(() => {

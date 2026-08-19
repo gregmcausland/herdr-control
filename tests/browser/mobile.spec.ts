@@ -9,12 +9,12 @@ test("fits the pane picker and terminal in a phone viewport", async ({ page }) =
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(bridgeUrl!)}`);
 
-  await expect(page.getByRole("heading", { name: "Workspaces" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Herdr Control" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: "test-results/mobile-picker.png", fullPage: true });
 
-  await page.getByRole("button").filter({ hasText: paneId! }).click();
-  await expect(page.locator(".terminal-header small")).toHaveText(new RegExp(`${paneId} · Control$`));
+  await page.getByTitle(paneId!).click();
+  await expect(page.locator(".terminal-header small")).toHaveText("Control");
   await expect(page.locator(".xterm-screen")).toBeVisible();
   await expect(page.locator(".xterm-rows")).toContainText("gregm@servermz");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

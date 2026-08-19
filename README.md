@@ -20,17 +20,25 @@ Working today:
 
 - Discover Herdr workspaces, tabs, and panes.
 - Keep workspace and agent state live through Herdr's socket event stream.
+- Present a workspace-grouped pane overview with clear idle, working, blocked,
+  and newly completed states.
+- Switch the app and terminal together between Dracula, Catppuccin Mocha,
+  Tokyo Night, Gruvbox Dark, and Nord palettes.
 - Render and control live shells and full-screen coding-agent interfaces.
-- Resize, scroll, type, paste text, and send common terminal keys.
+- Resize, scroll, type, paste text, and send terminal keys through Herdr's
+  keyboard-aware input path, including modified keys such as Shift+Enter.
 - Use a phone-friendly message composer and clipboard-image upload.
 - Observe a busy pane or explicitly take control from another client.
+- Mark completed work as viewed when its terminal is open and visible.
 - Disconnect and reconnect without stopping the underlying process.
 
-The current pane picker is deliberately basic. The next stage is an
-orchestration-focused interface that makes it easier to understand what agents
-are doing, see which work needs attention, navigate active tasks, and supervise
-work without treating every interaction as a raw terminal session. Direct
-terminal control will remain available as the reliable underlying escape hatch.
+The interface now has a focused orchestration foundation: workspaces organise
+the panes, agent state drives their presentation, and active work has a live
+visual treatment. The next stage is to deepen that surface so it becomes easier
+to understand what agents are doing, see which work needs attention, navigate
+active tasks, and supervise work without treating every interaction as a raw
+terminal session. Direct terminal control will remain available as the reliable
+underlying escape hatch.
 
 See [prototype validation](docs/prototype-validation.md) for the behaviours
 tested so far and known compatibility gaps.

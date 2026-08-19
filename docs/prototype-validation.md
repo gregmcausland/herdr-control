@@ -6,7 +6,7 @@ Validated on 19 August 2026 against Herdr 0.8.0, protocol 19.
 
 - The independent Vite client connected to a supplied bridge URL over the host's Tailscale address.
 - The production bridge served the same built client and handled same-origin HTTP and WebSocket traffic.
-- The picker rendered Herdr workspaces, tabs, and panes from authoritative
+- The picker grouped panes by Herdr workspace from authoritative
   `session.snapshot` reads triggered by lifecycle and pane-status socket events.
 - xterm.js rendered full and incremental ANSI frames from `herdr terminal session`.
 - Browser input reached an isolated Herdr shell; disconnecting and reconnecting left the shell alive.

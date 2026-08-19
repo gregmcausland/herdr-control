@@ -14,8 +14,8 @@ test("stages a pasted clipboard image and pastes its server path", async ({ page
     origin: new URL(clientUrl!).origin,
   });
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(bridgeUrl!)}`);
-  await page.getByRole("button").filter({ hasText: paneId! }).click();
-  await expect(page.locator(".terminal-header small")).toHaveText(new RegExp(`${paneId} · Control$`));
+  await page.getByTitle(paneId!).click();
+  await expect(page.locator(".terminal-header small")).toHaveText("Control");
 
   const input = page.locator(".xterm-helper-textarea");
   const marker = `__CLIPBOARD_IMAGE_${Date.now()}__`;
@@ -41,7 +41,7 @@ test("stages a pasted clipboard image and pastes its server path", async ({ page
   const { path } = await response.json() as { path: string };
   await expect.poll(async () => (await run("test", ["-f", path])).stderr).toBe("");
 
-  await expect(page.locator(".terminal-header small")).toHaveText(new RegExp(`${paneId} · Control$`));
+  await expect(page.locator(".terminal-header small")).toHaveText("Control");
   await page.keyboard.type(` && printf '${marker}\\n'`);
   await page.keyboard.press("Enter");
   await expect.poll(async () => (

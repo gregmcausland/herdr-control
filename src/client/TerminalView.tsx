@@ -3,15 +3,17 @@ import { Terminal } from "@xterm/xterm";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PaneInfo, TerminalMode, TerminalServerMessage } from "../shared/protocol";
 import { MobileTerminalControls } from "./MobileTerminalControls";
+import { WorkingActivity } from "./WorkingActivity";
 import { attachTerminalInput, type TerminalInputController } from "./terminal-input";
 import { attachTerminalViewport } from "./terminal-viewport";
-import { terminalTheme, theme } from "./theme";
+import { terminalThemeFor, themeFont, type ThemeId } from "./theme";
 
 type ConnectionState = "connecting" | "connected" | "occupied" | "disconnected";
 
 interface Props {
   bridgeUrl: string;
   pane: PaneInfo;
+  themeId: ThemeId;
   onBack: () => void;
 }
 
@@ -34,7 +36,7 @@ function decodeBase64(value: string): Uint8Array {
   return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
 }
 
-export function TerminalView({ bridgeUrl, pane, onBack }: Props) {
+export function TerminalView({ bridgeUrl, pane, themeId, onBack }: Props) {
   const screenRef = useRef<HTMLElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | undefined>(undefined);
@@ -98,9 +100,9 @@ export function TerminalView({ bridgeUrl, pane, onBack }: Props) {
     const terminal = new Terminal({
       cursorBlink: true,
       convertEol: false,
-      fontFamily: theme.font.mono,
-      fontSize: theme.font.terminalSize,
-      theme: terminalTheme,
+      fontFamily: themeFont.mono,
+      fontSize: themeFont.terminalSize,
+      theme: terminalThemeFor(themeId),
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);
@@ -155,26 +157,44 @@ export function TerminalView({ bridgeUrl, pane, onBack }: Props) {
     };
   }, [disconnect, open]);
 
+  useEffect(() => {
+    if (pane.agent_status !== "done" || state !== "connected" || document.hidden) return;
+    const socket = socketRef.current;
+    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "view" }));
+  }, [pane.agent_status, state]);
+
   function release() {
     disconnect("Control released");
   }
 
   const inputActive = state === "connected" && mode === "control";
   const paneLabel = pane.terminal_title_stripped ?? pane.label ?? pane.pane_id;
+  const working = pane.agent_status === "working";
 
   return (
     <main className="terminal-screen" ref={screenRef}>
-      <header className="terminal-header">
-        <button className="secondary" onClick={onBack}>← Panes</button>
-        <div>
-          <strong>{paneLabel}</strong>
-          <small>{pane.pane_id} · {message}</small>
+      <header className={`terminal-header ${working ? "working" : ""}`}>
+        {working && <WorkingActivity themeId={themeId} />}
+        <button className="secondary icon-button terminal-home" onClick={onBack} aria-label="Home" title="Return to panes">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 11.5 12 4l9 7.5M5.5 10v9.5h5v-6h3v6h5V10" />
+          </svg>
+        </button>
+        <div className="terminal-heading">
+          <span
+            className={`status ${pane.agent_status ?? "unknown"}`}
+            title={pane.agent_status ?? "unknown"}
+          />
+          <span className="terminal-heading-copy">
+            <strong>{paneLabel}</strong>
+            <small>{message}</small>
+          </span>
         </div>
         {state === "connected" && mode === "control" && (
-          <button className="secondary" onClick={release}>Release</button>
+          <button className="secondary terminal-action" onClick={release}>Release</button>
         )}
         {state === "connected" && mode === "observe" && (
-          <button onClick={() => open("control", true)}>Control here</button>
+          <button className="terminal-action primary" onClick={() => open("control", true)}>Control here</button>
         )}
       </header>
       <div className="terminal-frame">
@@ -182,7 +202,7 @@ export function TerminalView({ bridgeUrl, pane, onBack }: Props) {
       </div>
       <MobileTerminalControls
         active={inputActive}
-        paneLabel={pane.pane_id}
+        paneLabel={paneLabel}
         onFocusTerminal={() => inputRef.current?.focus()}
         onKey={(data) => inputRef.current?.sendKey(data) ?? false}
         onSendMessage={(text) => inputRef.current?.sendMessage(text) ?? false}

@@ -6,6 +6,7 @@ import type {
   TerminalMode,
   TerminalServerMessage,
 } from "../shared/protocol.js";
+import { requestHerdr } from "./herdr-socket.js";
 
 interface HerdrFrame {
   type: "terminal.frame";
@@ -42,15 +43,40 @@ export function translateHerdrRecord(record: HerdrRecord): TerminalServerMessage
   return { type: "closed", reason };
 }
 
+const LEGACY_KEYS: Record<string, string> = {
+  "\r": "enter",
+  "\x1b": "esc",
+  "\x03": "ctrl+c",
+  "\t": "tab",
+  "\x7f": "backspace",
+  "\x1b[A": "up",
+  "\x1b[B": "down",
+  "\x1b[C": "right",
+  "\x1b[D": "left",
+  "\x1bOA": "up",
+  "\x1bOB": "down",
+  "\x1bOC": "right",
+  "\x1bOD": "left",
+  "\x1b[3~": "delete",
+  "\x1b[H": "home",
+  "\x1b[F": "end",
+};
+
+export function logicalKeyFromLegacyInput(data: string): string | undefined {
+  return LEGACY_KEYS[data];
+}
+
 export class HerdrTerminalConnection {
   private readonly child: ChildProcessWithoutNullStreams;
   private stderr = "";
   private receivedClose = false;
   private disposed = false;
+  private keyQueue: Promise<unknown> = Promise.resolve();
 
   constructor(
     binary: string,
-    target: string,
+    private readonly socketPath: string,
+    private readonly target: string,
     mode: TerminalMode,
     takeover: boolean,
     cols: number,
@@ -101,7 +127,14 @@ export class HerdrTerminalConnection {
   send(message: TerminalClientMessage): void {
     if (this.disposed || !this.child.stdin.writable) return;
 
-    if (message.type === "input") {
+    const logicalKey = message.type === "key"
+      ? message.key
+      : message.type === "input"
+        ? logicalKeyFromLegacyInput(message.data)
+        : undefined;
+    if (logicalKey) {
+      this.queueKey(logicalKey);
+    } else if (message.type === "input") {
       this.write({ type: "terminal.input", text: message.data });
     } else if (message.type === "resize") {
       this.write({ type: "terminal.resize", cols: message.cols, rows: message.rows });
@@ -134,10 +167,27 @@ export class HerdrTerminalConnection {
     if (this.child.exitCode !== null || this.child.stdin.destroyed || !this.child.stdin.writable) return;
     this.child.stdin.write(`${JSON.stringify(message)}\n`);
   }
+
+  private queueKey(key: string): void {
+    this.keyQueue = this.keyQueue
+      .then(() => requestHerdr(this.socketPath, "pane.send_keys", {
+        pane_id: this.target,
+        keys: [key],
+      }))
+      .catch((error: unknown) => {
+        this.emit({
+          type: "error",
+          message: error instanceof Error ? error.message : "Herdr rejected terminal input",
+        });
+      });
+  }
 }
 
 export class HerdrAdapter {
-  constructor(private readonly binary = "herdr") {}
+  constructor(
+    private readonly binary = "herdr",
+    private readonly socketPath = "",
+  ) {}
 
   async snapshot(): Promise<SessionSnapshot> {
     const stdout = await this.run(["api", "snapshot"]);
@@ -159,6 +209,7 @@ export class HerdrAdapter {
   ): HerdrTerminalConnection {
     return new HerdrTerminalConnection(
       this.binary,
+      this.socketPath,
       options.target,
       options.mode,
       options.takeover,
@@ -166,6 +217,10 @@ export class HerdrAdapter {
       options.rows,
       emit,
     );
+  }
+
+  async focusPane(target: string): Promise<void> {
+    await requestHerdr(this.socketPath, "pane.focus", { pane_id: target });
   }
 
   private run(args: string[]): Promise<string> {

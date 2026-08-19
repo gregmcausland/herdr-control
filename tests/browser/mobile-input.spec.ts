@@ -14,11 +14,13 @@ const snapshot = {
     terminal_id: "term_test",
     terminal_title_stripped: "Test pane",
     cwd: "/tmp",
+    agent: "codex",
+    agent_status: "done",
     focused: true,
   }],
 };
 
-async function mockTerminal(page: Page, sent: Array<{ type: string; data?: string }>) {
+async function mockTerminal(page: Page, sent: Array<{ type: string; data?: string; key?: string }>) {
   await page.route("**/api/session/events", (route) => route.fulfill({
     contentType: "text/event-stream",
     body: `data: ${JSON.stringify({ status: "live", revision: 1, snapshot })}\n\n`,
@@ -29,12 +31,13 @@ async function mockTerminal(page: Page, sent: Array<{ type: string; data?: strin
   });
 }
 
-async function openTerminal(context: BrowserContext, sent: Array<{ type: string; data?: string }>) {
+async function openTerminal(context: BrowserContext, sent: Array<{ type: string; data?: string; key?: string }>) {
   const page = await context.newPage();
   await mockTerminal(page, sent);
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
-  await page.getByRole("button").filter({ hasText: "w1:p1" }).click();
-  await expect(page.locator(".terminal-header small")).toHaveText("w1:p1 · Control");
+  await page.getByRole("button", { name: "Open Test pane" }).click();
+  await expect(page.locator(".terminal-header small")).toHaveText("Control");
+  await expect.poll(() => sent.some((message) => message.type === "view")).toBe(true);
   return page;
 }
 
@@ -46,7 +49,7 @@ test("offers local message composition and terminal keys only on mobile", async 
     isMobile: true,
     viewport: { width: 390, height: 844 },
   });
-  const sent: Array<{ type: string; data?: string }> = [];
+  const sent: Array<{ type: string; data?: string; key?: string }> = [];
   const page = await openTerminal(mobile, sent);
 
   const controls = page.getByRole("navigation", { name: "Terminal controls" });
@@ -64,12 +67,12 @@ test("offers local message composition and terminal keys only on mobile", async 
 
   await expect.poll(() => sent.filter((message) => message.type === "input").map((message) => message.data)).toEqual([
     "A locally edited\rmessage",
-    "\r",
   ]);
+  await expect.poll(() => sent.at(-1)).toMatchObject({ type: "key", key: "enter" });
   await page.getByRole("button", { name: "Keys", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Terminal keys" })).toBeVisible();
   await page.getByRole("button", { name: "Esc", exact: true }).click();
-  await expect.poll(() => sent.at(-1)?.data).toBe("\x1b");
+  await expect.poll(() => sent.at(-1)).toMatchObject({ type: "key", key: "esc" });
   await expect(page.getByRole("dialog", { name: "Terminal keys" })).toBeVisible();
   await mobile.close();
 

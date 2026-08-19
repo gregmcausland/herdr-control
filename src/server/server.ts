@@ -27,7 +27,7 @@ const clientRoot = resolve(process.cwd(), "dist/client");
 
 export function createControlServer(
   config: ServerConfig,
-  herdr = new HerdrAdapter(config.herdrBinary),
+  herdr = new HerdrAdapter(config.herdrBinary, config.herdrSocketPath),
   session: SessionStateFeed = new LiveSession(new HerdrSocketSource(config.herdrSocketPath)),
 ) {
   const clipboardImages = new ClipboardImageStore();
@@ -115,11 +115,20 @@ export function createControlServer(
 
     const terminal = herdr.connectTerminal({ target, mode, takeover, cols, rows }, send);
     send({ type: "ready", mode });
+    void herdr.focusPane(target).catch((error: unknown) => {
+      send({ type: "error", message: error instanceof Error ? error.message : "Unable to mark pane as viewed" });
+    });
 
     socket.on("message", (raw) => {
       try {
         const message = JSON.parse(raw.toString()) as TerminalClientMessage;
         if (!isClientMessage(message)) throw new Error("Invalid terminal command");
+        if (message.type === "view") {
+          void herdr.focusPane(target).catch((error: unknown) => {
+            send({ type: "error", message: error instanceof Error ? error.message : "Unable to mark pane as viewed" });
+          });
+          return;
+        }
         if (mode === "observe" && message.type !== "release") return;
         terminal.send(message);
       } catch (error) {
@@ -167,7 +176,9 @@ function positiveInteger(value: string | null, fallback: number): number {
 function isClientMessage(message: TerminalClientMessage): boolean {
   if (!message || typeof message !== "object") return false;
   if (message.type === "release") return true;
+  if (message.type === "view") return true;
   if (message.type === "input") return typeof message.data === "string";
+  if (message.type === "key") return /^[a-z0-9]+(?:\+[a-z0-9]+)*$/.test(message.key);
   if (message.type === "resize") {
     return (
       Number.isInteger(message.cols) &&

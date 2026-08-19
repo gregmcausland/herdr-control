@@ -17,8 +17,8 @@ test("forwards wheel and page-key scrolling to Herdr", async ({ page }) => {
   test.skip(!clientUrl || !bridgeUrl || !paneId, "Live Herdr browser test configuration is not present");
 
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(bridgeUrl!)}`);
-  await page.getByRole("button").filter({ hasText: paneId! }).click();
-  await expect(page.locator(".terminal-header small")).toHaveText(new RegExp(`${paneId} · Control$`));
+  await page.getByTitle(paneId!).click();
+  await expect(page.locator(".terminal-header small")).toHaveText("Control");
 
   const input = page.locator(".xterm-helper-textarea");
   await input.focus();

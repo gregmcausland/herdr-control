@@ -114,10 +114,17 @@ export function attachTerminalInput({ terminal, host, bridgeUrl, channel }: Term
   };
 
   terminal.attachCustomKeyEventHandler((event) => {
-    if (!channel.active() || (event.key !== "PageUp" && event.key !== "PageDown")) return true;
-    if (event.type === "keydown") {
-      sendScroll("page_key", event.key === "PageUp" ? "up" : "down", terminal.rows);
+    if (!channel.active()) return true;
+    if (event.key === "PageUp" || event.key === "PageDown") {
+      if (event.type === "keydown") {
+        sendScroll("page_key", event.key === "PageUp" ? "up" : "down", terminal.rows);
+      }
+      return false;
     }
+
+    const key = logicalTerminalKey(event);
+    if (!key) return true;
+    if (event.type === "keydown") channel.send({ type: "key", key });
     return false;
   });
 
@@ -208,9 +215,9 @@ export function attachTerminalInput({ terminal, host, bridgeUrl, channel }: Term
   host.addEventListener("touchstart", suppressXtermTouch, { capture: true, passive: true });
   host.addEventListener("touchmove", suppressXtermTouch, { capture: true, passive: false });
 
-  const sendKey = (data: string) => {
+  const sendKey = (key: string) => {
     if (!channel.active()) return false;
-    terminal.input(data, true);
+    channel.send({ type: "key", key });
     return true;
   };
 
@@ -219,7 +226,7 @@ export function attachTerminalInput({ terminal, host, bridgeUrl, channel }: Term
     terminal.paste(text);
     const timer = window.setTimeout(() => {
       messageTimers.delete(timer);
-      if (!disposed && channel.active()) terminal.input("\r", true);
+      if (!disposed && channel.active()) channel.send({ type: "key", key: "enter" });
     }, 75);
     messageTimers.add(timer);
     return true;
@@ -250,6 +257,35 @@ export function attachTerminalInput({ terminal, host, bridgeUrl, channel }: Term
     focus: () => terminal.focus(),
     dispose,
   };
+}
+
+const LOGICAL_KEYS: Record<string, string> = {
+  Enter: "enter",
+  Escape: "esc",
+  ArrowUp: "up",
+  ArrowDown: "down",
+  ArrowLeft: "left",
+  ArrowRight: "right",
+  Tab: "tab",
+  Backspace: "backspace",
+  Delete: "delete",
+  Home: "home",
+  End: "end",
+  Insert: "insert",
+};
+
+/** Preserves key intent so Herdr can encode it for the pane's active keyboard protocol. */
+export function logicalTerminalKey(event: Pick<KeyboardEvent, "key" | "ctrlKey" | "altKey" | "shiftKey" | "metaKey">): string | undefined {
+  if (event.metaKey) return undefined;
+  const base = LOGICAL_KEYS[event.key]
+    ?? (event.ctrlKey && event.key.length === 1 ? (event.key === " " ? "space" : event.key.toLowerCase()) : undefined);
+  if (!base) return undefined;
+
+  const modifiers: string[] = [];
+  if (event.ctrlKey) modifiers.push("ctrl");
+  if (event.altKey) modifiers.push("alt");
+  if (event.shiftKey) modifiers.push("shift");
+  return [...modifiers, base].join("+");
 }
 
 function terminalCellAt(clientX: number, clientY: number, host: HTMLElement, terminal: Terminal): [number, number] {

@@ -165,16 +165,25 @@ function compositeConnection(
 }
 
 async function requestSnapshot(socketPath: string): Promise<SessionSnapshot> {
-  const response = await requestLine(socketPath, {
-    id: `herdr-control:snapshot:${Date.now()}:${++requestSequence}`,
-    method: "session.snapshot",
-    params: {},
-  });
+  const response = await requestHerdr(socketPath, "session.snapshot", {});
   const snapshot = record<SessionSnapshot>(record<Record<string, unknown>>(response.result)?.snapshot);
   if (!snapshot || !Array.isArray(snapshot.workspaces) || !Array.isArray(snapshot.tabs) || !Array.isArray(snapshot.panes)) {
     throw new Error("Herdr returned an invalid session snapshot");
   }
   return snapshot;
+}
+
+/** Performs a single documented Herdr socket action. */
+export function requestHerdr(
+  socketPath: string,
+  method: string,
+  params: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return requestLine(socketPath, {
+    id: `herdr-control:${method}:${Date.now()}:${++requestSequence}`,
+    method,
+    params,
+  });
 }
 
 async function openEventStream(

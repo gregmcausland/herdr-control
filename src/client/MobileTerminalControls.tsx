@@ -10,14 +10,14 @@ interface Props {
   onSendMessage: (text: string) => boolean;
 }
 
-const KEYS: ReadonlyArray<{ label: string; value: string; name?: string }> = [
-  { label: "Esc", value: "\x1b" },
-  { label: "Tab", value: "\t" },
-  { label: "^C", value: "\x03", name: "Ctrl+C" },
-  { label: "←", value: "\x1b[D", name: "Left arrow" },
-  { label: "↑", value: "\x1b[A", name: "Up arrow" },
-  { label: "↓", value: "\x1b[B", name: "Down arrow" },
-  { label: "→", value: "\x1b[C", name: "Right arrow" },
+const KEYS: ReadonlyArray<{ label: string; key: string; name?: string }> = [
+  { label: "Esc", key: "esc" },
+  { label: "Tab", key: "tab" },
+  { label: "^C", key: "ctrl+c", name: "Ctrl+C" },
+  { label: "←", key: "left", name: "Left arrow" },
+  { label: "↑", key: "up", name: "Up arrow" },
+  { label: "↓", key: "down", name: "Down arrow" },
+  { label: "→", key: "right", name: "Right arrow" },
 ];
 
 export function MobileTerminalControls({ active, paneLabel, onFocusTerminal, onKey, onSendMessage }: Props) {
@@ -67,7 +67,7 @@ export function MobileTerminalControls({ active, paneLabel, onFocusTerminal, onK
                 <h2 id="terminal-keys-title">Terminal keys</h2>
                 <small>{active ? `Connected to ${paneLabel}` : "Terminal control unavailable"}</small>
               </div>
-              <button className="secondary" onClick={() => setKeysOpen(false)} aria-label="Close terminal keys">×</button>
+              <button className="secondary icon-button" onClick={() => setKeysOpen(false)} aria-label="Close terminal keys">×</button>
             </header>
             <div className="terminal-key-grid">
               {KEYS.map((key) => (
@@ -75,7 +75,7 @@ export function MobileTerminalControls({ active, paneLabel, onFocusTerminal, onK
                   className="terminal-key"
                   key={key.label}
                   aria-label={key.name ?? key.label}
-                  onClick={() => onKey(key.value)}
+                  onClick={() => onKey(key.key)}
                   disabled={!active}
                 >
                   {key.label}
@@ -96,7 +96,7 @@ export function MobileTerminalControls({ active, paneLabel, onFocusTerminal, onK
                 <h2 id="message-title">Send message</h2>
                 <small>{active ? `Connected to ${paneLabel}` : "Terminal control unavailable"}</small>
               </div>
-              <button className="secondary" onClick={() => setComposerOpen(false)} aria-label="Close message composer">×</button>
+              <button className="secondary icon-button" onClick={() => setComposerOpen(false)} aria-label="Close message composer">×</button>
             </header>
             <textarea
               ref={textareaRef}
