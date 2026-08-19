@@ -20,8 +20,8 @@ Working today:
 
 - Discover Herdr workspaces, tabs, and panes.
 - Keep workspace and agent state live through Herdr's socket event stream.
-- Present a workspace-grouped pane overview with clear idle, working, blocked,
-  and newly completed states.
+- Present a workspace-grouped pane overview that prioritises blocked, working,
+  and newly completed work while keeping idle panes stable.
 - Switch the app and terminal together between Dracula, Catppuccin Mocha,
   Tokyo Night, Gruvbox Dark, Nord, Catppuccin Latte, Solarized Light, and
   Gruvbox Light palettes.

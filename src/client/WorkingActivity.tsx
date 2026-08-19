@@ -3,6 +3,8 @@ import { activityColorsFor, type ThemeId } from "./theme";
 
 type Rgb = readonly [number, number, number];
 
+const ACTIVITY_CONTRAST = 1.2;
+
 interface Point {
   x: number;
   y: number;
@@ -212,7 +214,7 @@ function drawLayer(
       const proximity = 1 - distance / layer.reach;
       const pulse = 0.78 + 0.22 * Math.sin(time * 0.72 + layer.points[first].pulse + layer.points[second].pulse);
       const brightness = rightSideBrightness((a.x + b.x) / 2, width);
-      const alpha = proximity * proximity * layer.opacity * pulse * brightness;
+      const alpha = proximity * proximity * layer.opacity * pulse * brightness * ACTIVITY_CONTRAST;
       context.strokeStyle = rgba(layer.line, alpha);
       context.beginPath();
       context.moveTo(a.x, a.y);
@@ -230,8 +232,8 @@ function drawLayer(
     const radius = 0.65 + layer.opacity * 1.8 + flare * 1.5;
     const brightness = rightSideBrightness(position.x, width);
 
-    context.fillStyle = rgba(layer.light, layer.opacity * (0.7 + pulse * 0.65) * brightness);
-    context.shadowColor = rgba(layer.light, 0.7 * brightness);
+    context.fillStyle = rgba(layer.light, layer.opacity * (0.7 + pulse * 0.65) * brightness * ACTIVITY_CONTRAST);
+    context.shadowColor = rgba(layer.light, 0.7 * brightness * ACTIVITY_CONTRAST);
     context.shadowBlur = 2 + flare * 9;
     context.beginPath();
     context.arc(position.x, position.y, radius, 0, Math.PI * 2);

@@ -11,6 +11,7 @@ import {
   themeOptions,
 } from "./theme";
 import { WorkingActivity } from "./WorkingActivity";
+import { groupPanesByActivity } from "./activity-order";
 
 const STORAGE_KEY = "herdr-control-host";
 
@@ -49,6 +50,9 @@ export function App() {
   const [themeId, setThemeId] = useState(readThemePreference);
   const liveSession = useLiveSession(bridgeUrl);
   const snapshot = liveSession.snapshot;
+  const workspaceGroups = snapshot
+    ? groupPanesByActivity(snapshot.workspaces, snapshot.panes)
+    : [];
   const activePane = selectedPane
     ? snapshot?.panes.find((pane) => pane.pane_id === selectedPane.pane_id) ?? selectedPane
     : undefined;
@@ -152,38 +156,32 @@ export function App() {
 
       {snapshot && (
         <section className="inventory">
-          {snapshot.workspaces.map((workspace) => {
-            const panes = snapshot.panes.filter((pane) => pane.workspace_id === workspace.workspace_id);
-            if (panes.length === 0) return null;
-
-            return (
-              <section className="workspace-group" key={workspace.workspace_id}>
-                <h3 className="workspace-divider">{workspace.label}</h3>
-                <div className="pane-list">
-                  {panes.map((pane) => (
-                    <button
-                      className={`pane ${pane.agent_status === "working" ? "working" : ""}`}
-                      key={pane.pane_id}
-                      title={pane.pane_id}
-                      aria-label={`Open ${paneTitle(pane)}`}
-                      onClick={() => setSelectedPane(pane)}
-                    >
-                      {pane.agent_status === "working" && <WorkingActivity themeId={themeId} />}
-                      <span
-                        className={`status ${pane.agent_status ?? "unknown"}`}
-                        title={pane.agent_status ?? "unknown"}
-                      />
-                      <span className="pane-copy">
-                        <strong>{paneTitle(pane)}</strong>
-                        <small>{paneDetail(pane)}</small>
-                      </span>
-                      <span className="pane-action" aria-hidden="true">Open</span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            );
-          })}
+          {workspaceGroups.map(({ workspace, panes }) => (
+            <section className="workspace-group" key={workspace.workspace_id}>
+              <h3 className="workspace-divider">{workspace.label}</h3>
+              <div className="pane-list">
+                {panes.map((pane) => (
+                  <button
+                    className={`pane ${pane.agent_status === "working" ? "working" : ""}`}
+                    key={pane.pane_id}
+                    title={pane.pane_id}
+                    aria-label={`Open ${paneTitle(pane)}`}
+                    onClick={() => setSelectedPane(pane)}
+                  >
+                    {pane.agent_status === "working" && <WorkingActivity themeId={themeId} />}
+                    <span
+                      className={`status ${pane.agent_status ?? "unknown"}`}
+                      title={pane.agent_status ?? "unknown"}
+                    />
+                    <span className="pane-copy">
+                      <strong>{paneTitle(pane)}</strong>
+                      <small>{paneDetail(pane)}</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ))}
         </section>
       )}
     </main>
