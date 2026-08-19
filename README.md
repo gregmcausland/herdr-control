@@ -23,7 +23,8 @@ Working today:
 - Present a workspace-grouped pane overview with clear idle, working, blocked,
   and newly completed states.
 - Switch the app and terminal together between Dracula, Catppuccin Mocha,
-  Tokyo Night, Gruvbox Dark, and Nord palettes.
+  Tokyo Night, Gruvbox Dark, Nord, Catppuccin Latte, Solarized Light, and
+  Gruvbox Light palettes.
 - Render and control live shells and full-screen coding-agent interfaces.
 - Resize, scroll, type, paste text, and send terminal keys through Herdr's
   keyboard-aware input path, including modified keys such as Shift+Enter.

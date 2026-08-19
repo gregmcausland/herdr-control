@@ -21,13 +21,14 @@ test("applies and remembers a selected app and terminal palette", async ({ page 
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
   const selector = page.getByLabel("Theme");
   await expect(selector).toHaveValue("dracula");
-  await selector.selectOption("tokyoNight");
+  await selector.selectOption("catppuccinLatte");
 
   await expect.poll(() => page.evaluate(() => ({
     canvas: getComputedStyle(document.documentElement).getPropertyValue("--color-canvas"),
+    activityVeil: getComputedStyle(document.documentElement).getPropertyValue("--color-activity-veil"),
     browserChrome: document.querySelector('meta[name="theme-color"]')?.getAttribute("content"),
-  }))).toEqual({ canvas: "#1a1b26", browserChrome: "#1a1b26" });
+  }))).toEqual({ canvas: "#eff1f5", activityVeil: "#dce0e8", browserChrome: "#eff1f5" });
 
   await page.reload();
-  await expect(page.getByLabel("Theme")).toHaveValue("tokyoNight");
+  await expect(page.getByLabel("Theme")).toHaveValue("catppuccinLatte");
 });

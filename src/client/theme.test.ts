@@ -14,6 +14,9 @@ describe("theme catalog", () => {
       "Tokyo Night",
       "Gruvbox Dark",
       "Nord",
+      "Catppuccin Latte",
+      "Solarized Light",
+      "Gruvbox Light",
     ]);
 
     for (const { id } of themeOptions) {
@@ -28,7 +31,7 @@ describe("theme catalog", () => {
   });
 
   it("falls back safely when a stored theme is no longer available", () => {
-    expect(readThemePreference({ getItem: () => "tokyoNight" })).toBe("tokyoNight");
+    expect(readThemePreference({ getItem: () => "solarizedLight" })).toBe("solarizedLight");
     expect(readThemePreference({ getItem: () => "retired-theme" })).toBe("dracula");
   });
 });

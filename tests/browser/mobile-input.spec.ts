@@ -20,20 +20,29 @@ const snapshot = {
   }],
 };
 
-async function mockTerminal(page: Page, sent: Array<{ type: string; data?: string; key?: string }>) {
+async function mockTerminal(
+  page: Page,
+  sent: Array<{ type: string; data?: string; key?: string }>,
+  opened: string[] = [],
+) {
   await page.route("**/api/session/events", (route) => route.fulfill({
     contentType: "text/event-stream",
     body: `data: ${JSON.stringify({ status: "live", revision: 1, snapshot })}\n\n`,
   }));
   await page.routeWebSocket(/\/api\/terminal/, (socket) => {
+    opened.push(socket.url());
     socket.onMessage((message) => sent.push(JSON.parse(message.toString())));
     socket.send(JSON.stringify({ type: "ready", mode: "control" }));
   });
 }
 
-async function openTerminal(context: BrowserContext, sent: Array<{ type: string; data?: string; key?: string }>) {
+async function openTerminal(
+  context: BrowserContext,
+  sent: Array<{ type: string; data?: string; key?: string }>,
+  opened?: string[],
+) {
   const page = await context.newPage();
-  await mockTerminal(page, sent);
+  await mockTerminal(page, sent, opened);
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
   await page.getByRole("button", { name: "Open Test pane" }).click();
   await expect(page.locator(".terminal-header small")).toHaveText("Control");
@@ -76,8 +85,19 @@ test("offers local message composition and terminal keys only on mobile", async 
   await expect(page.getByRole("dialog", { name: "Terminal keys" })).toBeVisible();
   await mobile.close();
 
-  const desktop = await browser.newContext({ viewport: { width: 1200, height: 800 } });
-  const desktopPage = await openTerminal(desktop, []);
+  const medium = await browser.newContext({ viewport: { width: 900, height: 700 } });
+  const mediumPage = await medium.newPage();
+  await mockTerminal(mediumPage, []);
+  await mediumPage.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
+  expect(await mediumPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await medium.close();
+
+  const desktop = await browser.newContext({ viewport: { width: 2560, height: 800 } });
+  const opened: string[] = [];
+  const desktopPage = await openTerminal(desktop, [], opened);
   await expect(desktopPage.getByRole("navigation", { name: "Terminal controls" })).toHaveCount(0);
+  await expect.poll(() => opened.length).toBe(1);
+  expect(Number(new URL(opened[0]).searchParams.get("cols"))).toBeLessThanOrEqual(140);
+  expect(await desktopPage.locator(".terminal-frame").evaluate((element) => element.getBoundingClientRect().width)).toBe(980);
   await desktop.close();
 });
