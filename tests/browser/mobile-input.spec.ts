@@ -19,7 +19,10 @@ const snapshot = {
 };
 
 async function mockTerminal(page: Page, sent: Array<{ type: string; data?: string }>) {
-  await page.route("**/api/snapshot", (route) => route.fulfill({ json: snapshot }));
+  await page.route("**/api/session/events", (route) => route.fulfill({
+    contentType: "text/event-stream",
+    body: `data: ${JSON.stringify({ status: "live", revision: 1, snapshot })}\n\n`,
+  }));
   await page.routeWebSocket(/\/api\/terminal/, (socket) => {
     socket.onMessage((message) => sent.push(JSON.parse(message.toString())));
     socket.send(JSON.stringify({ type: "ready", mode: "control" }));

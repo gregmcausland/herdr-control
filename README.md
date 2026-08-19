@@ -19,6 +19,7 @@ validated, but the interface and protocol may still change.
 Working today:
 
 - Discover Herdr workspaces, tabs, and panes.
+- Keep workspace and agent state live through Herdr's socket event stream.
 - Render and control live shells and full-screen coding-agent interfaces.
 - Resize, scroll, type, paste text, and send common terminal keys.
 - Use a phone-friendly message composer and clipboard-image upload.
@@ -47,6 +48,12 @@ Herdr-owned terminal
 Herdr remains responsible for processes and terminal ownership. Herdr Control
 is a narrow browser-facing bridge and UI, which keeps the terminal path separate
 from the evolving orchestration experience around it.
+
+The bridge bootstraps an authoritative session snapshot, then uses Herdr
+lifecycle and agent-status events to trigger coalesced snapshot refreshes. This
+keeps the browser live without relying on cross-event ordering. If the Herdr
+connection drops, the UI retains the last known state as stale while the bridge
+reconnects and resynchronises.
 
 ## Run locally
 
@@ -99,6 +106,7 @@ or untrusted network.
 | `HERDR_CONTROL_BIND` | `127.0.0.1` | Bridge bind address |
 | `HERDR_CONTROL_PORT` | `4173` | Bridge port |
 | `HERDR_CONTROL_BIN` | `herdr` | Herdr executable |
+| `HERDR_CONTROL_SOCKET` | Herdr's default socket | Explicit Herdr socket path |
 | `HERDR_CONTROL_ALLOWED_ORIGINS` | Local Vite origins | Comma-separated origins for separately hosted clients |
 
 ## Verification

@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
-import type { PaneInfo, SessionSnapshot } from "../shared/protocol";
+import { useMemo, useState } from "react";
+import type { PaneInfo } from "../shared/protocol";
 import { TerminalView } from "./TerminalView";
+import { useLiveSession } from "./live-session";
 
 const STORAGE_KEY = "herdr-control-host";
 
@@ -27,38 +28,16 @@ function groupBy<T>(items: T[], keyFor: (item: T) => string): Map<string, T[]> {
 export function App() {
   const [hostInput, setHostInput] = useState(initialHost);
   const [bridgeUrl, setBridgeUrl] = useState(() => normalizeHost(initialHost()));
-  const [snapshot, setSnapshot] = useState<SessionSnapshot>();
   const [selectedPane, setSelectedPane] = useState<PaneInfo>();
-  const [error, setError] = useState<string>();
-  const [loading, setLoading] = useState(false);
-
-  async function refresh(nextBridgeUrl = bridgeUrl) {
-    setLoading(true);
-    setError(undefined);
-    try {
-      const response = await fetch(`${nextBridgeUrl}/api/snapshot`);
-      const body = (await response.json()) as SessionSnapshot | { error: string };
-      if (!response.ok || "error" in body) throw new Error("error" in body ? body.error : "Snapshot failed");
-      setSnapshot(body);
-    } catch (reason) {
-      setSnapshot(undefined);
-      setError(reason instanceof Error ? reason.message : "Unable to connect to bridge");
-    } finally {
-      setLoading(false);
-    }
-  }
+  const liveSession = useLiveSession(bridgeUrl);
+  const snapshot = liveSession.snapshot;
 
   function connect() {
     const nextBridgeUrl = normalizeHost(hostInput);
     localStorage.setItem(STORAGE_KEY, nextBridgeUrl);
     setBridgeUrl(nextBridgeUrl);
     setSelectedPane(undefined);
-    void refresh(nextBridgeUrl);
   }
-
-  useEffect(() => {
-    void refresh();
-  }, []);
 
   const tabsByWorkspace = useMemo(
     () => groupBy(snapshot?.tabs ?? [], (tab) => tab.workspace_id),
@@ -71,10 +50,7 @@ export function App() {
       <TerminalView
         bridgeUrl={bridgeUrl}
         pane={selectedPane}
-        onBack={() => {
-          setSelectedPane(undefined);
-          void refresh();
-        }}
+        onBack={() => setSelectedPane(undefined)}
       />
     );
   }
@@ -86,9 +62,9 @@ export function App() {
           <p className="eyebrow">Remote terminal control</p>
           <h1>Herdr Control</h1>
         </div>
-        <button className="secondary" onClick={() => void refresh()} disabled={loading}>
-          Refresh
-        </button>
+        <span className={`connection-status ${liveSession.status}`}>
+          {liveSession.status === "live" ? "Live" : liveSession.status === "stale" ? "Reconnecting" : "Connecting"}
+        </span>
       </header>
 
       <form
@@ -111,8 +87,12 @@ export function App() {
         </div>
       </form>
 
-      {error && <p className="notice error">{error}</p>}
-      {loading && <p className="notice">Connecting to {bridgeUrl}…</p>}
+      {liveSession.status === "connecting" && <p className="notice">Connecting to {bridgeUrl}…</p>}
+      {liveSession.status === "stale" && (
+        <p className={`notice ${snapshot ? "" : "error"}`}>
+          {snapshot ? "Showing the last known state. " : ""}{liveSession.message ?? "Unable to connect to bridge"}
+        </p>
+      )}
 
       {snapshot && (
         <section className="inventory">

@@ -9,6 +9,8 @@ import {
   MAX_CLIPBOARD_IMAGE_BYTES,
 } from "./clipboard-image.js";
 import { HerdrAdapter } from "./herdr.js";
+import { HerdrSocketSource } from "./herdr-socket.js";
+import { LiveSession, type SessionStateFeed } from "./live-session.js";
 import { isOriginAllowed, type ServerConfig } from "./config.js";
 
 const MIME_TYPES: Record<string, string> = {
@@ -23,7 +25,11 @@ const MIME_TYPES: Record<string, string> = {
 
 const clientRoot = resolve(process.cwd(), "dist/client");
 
-export function createControlServer(config: ServerConfig, herdr = new HerdrAdapter(config.herdrBinary)) {
+export function createControlServer(
+  config: ServerConfig,
+  herdr = new HerdrAdapter(config.herdrBinary),
+  session: SessionStateFeed = new LiveSession(new HerdrSocketSource(config.herdrSocketPath)),
+) {
   const clipboardImages = new ClipboardImageStore();
   const server = createServer(async (request, response) => {
     setCorsHeaders(request, response, config.allowedOrigins);
@@ -44,10 +50,14 @@ export function createControlServer(config: ServerConfig, herdr = new HerdrAdapt
     }
     if (request.method === "GET" && url.pathname === "/api/snapshot") {
       try {
-        sendJson(response, 200, await herdr.snapshot());
+        sendJson(response, 200, session.current().snapshot ?? await herdr.snapshot());
       } catch (error) {
         sendJson(response, 502, { error: error instanceof Error ? error.message : "Herdr snapshot failed" });
       }
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/session/events") {
+      serveSessionEvents(request, response, session);
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/clipboard-image") {
@@ -120,7 +130,33 @@ export function createControlServer(config: ServerConfig, herdr = new HerdrAdapt
     socket.on("error", () => terminal.dispose());
   });
 
+  server.on("close", () => session.close());
+
   return server;
+}
+
+function serveSessionEvents(
+  request: IncomingMessage,
+  response: ServerResponse,
+  session: SessionStateFeed,
+): void {
+  response.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  response.flushHeaders();
+
+  const unsubscribe = session.subscribe((state) => {
+    response.write(`data: ${JSON.stringify(state)}\n\n`);
+  });
+  const heartbeat = setInterval(() => response.write(": keepalive\n\n"), 15_000);
+  heartbeat.unref();
+  request.on("close", () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+  });
 }
 
 function positiveInteger(value: string | null, fallback: number): number {

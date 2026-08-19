@@ -11,6 +11,12 @@ describe("bridge configuration", () => {
     const config = loadConfig({});
     expect(config.host).toBe("127.0.0.1");
     expect(config.port).toBe(4173);
+    expect(config.herdrSocketPath).toMatch(/herdr\/herdr\.sock$/);
+  });
+
+  it("uses Herdr's supported socket override", () => {
+    const config = loadConfig({ HERDR_SOCKET_PATH: "/tmp/work.sock" });
+    expect(config.herdrSocketPath).toBe("/tmp/work.sock");
   });
 
   it("allows native clients, configured web clients, and same-origin clients", () => {

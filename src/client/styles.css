@@ -48,6 +48,10 @@ button:disabled { cursor: default; opacity: .5; }
 }
 .notice { padding: 12px; border-radius: 8px; background: var(--color-surface-notice); }
 .notice.error { background: var(--color-surface-danger); color: var(--color-danger-text); }
+.connection-status { display: inline-flex; align-items: center; gap: 7px; color: var(--color-text-muted); font-size: 13px; }
+.connection-status::before { width: 8px; height: 8px; border-radius: 50%; background: var(--color-idle); content: ""; }
+.connection-status.live::before { background: var(--color-success); }
+.connection-status.stale::before { background: var(--color-danger); }
 
 .inventory { display: grid; gap: 14px; }
 .inventory-heading span, .workspace > header > span { color: var(--color-text-muted); font-size: 13px; }

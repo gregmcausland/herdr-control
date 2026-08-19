@@ -57,7 +57,22 @@ export interface PaneInfo {
   foreground_cwd?: string;
   agent?: string;
   agent_status?: string;
+  display_agent?: string;
+  state_labels?: Record<string, string>;
   focused: boolean;
+}
+
+export interface PaneLayoutSnapshot {
+  workspace_id: string;
+  tab_id: string;
+  focused_pane_id?: string;
+  zoomed?: boolean;
+  [key: string]: unknown;
+}
+
+export interface AgentInfo extends PaneInfo {
+  agent: string;
+  agent_status: string;
 }
 
 export interface SessionSnapshot {
@@ -69,4 +84,15 @@ export interface SessionSnapshot {
   workspaces: WorkspaceInfo[];
   tabs: TabInfo[];
   panes: PaneInfo[];
+  layouts?: PaneLayoutSnapshot[];
+  agents?: AgentInfo[];
+}
+
+export type SessionFeedStatus = "connecting" | "live" | "stale";
+
+export interface SessionFeedState {
+  status: SessionFeedStatus;
+  revision: number;
+  snapshot?: SessionSnapshot;
+  message?: string;
 }

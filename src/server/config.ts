@@ -1,9 +1,12 @@
 import type { IncomingMessage } from "node:http";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 export interface ServerConfig {
   host: string;
   port: number;
   herdrBinary: string;
+  herdrSocketPath: string;
   allowedOrigins: Set<string>;
 }
 
@@ -17,6 +20,9 @@ export function loadConfig(environment = process.env): ServerConfig {
     host: environment.HERDR_CONTROL_BIND ?? "127.0.0.1",
     port,
     herdrBinary: environment.HERDR_CONTROL_BIN ?? "herdr",
+    herdrSocketPath: environment.HERDR_CONTROL_SOCKET
+      ?? environment.HERDR_SOCKET_PATH
+      ?? join(environment.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "herdr", "herdr.sock"),
     allowedOrigins: new Set(
       (environment.HERDR_CONTROL_ALLOWED_ORIGINS ?? "http://localhost:5173,http://127.0.0.1:5173")
         .split(",")
