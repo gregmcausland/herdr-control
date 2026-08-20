@@ -20,14 +20,14 @@ describe("bridge configuration", () => {
     expect(config.herdrSocketPath).toBe("/tmp/work.sock");
   });
 
-  it("allows native clients, configured web clients, and same-origin clients", () => {
+  it("allows native clients and explicitly configured web clients", () => {
     const allowed = new Set(["http://localhost:5173"]);
     expect(isOriginAllowed(request(undefined), allowed)).toBe(true);
     expect(isOriginAllowed(request("http://localhost:5173"), allowed)).toBe(true);
-    expect(isOriginAllowed(request("https://servermz.example.ts.net"), allowed)).toBe(true);
   });
 
-  it("rejects an unrelated browser origin", () => {
+  it("rejects unconfigured origins even when Origin and Host match", () => {
     expect(isOriginAllowed(request("https://malicious.example", "servermz.example.ts.net"), new Set())).toBe(false);
+    expect(isOriginAllowed(request("https://servermz.example.ts.net"), new Set())).toBe(false);
   });
 });

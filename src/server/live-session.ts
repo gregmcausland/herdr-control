@@ -86,8 +86,12 @@ export class LiveSession implements SessionStateFeed {
         const cycle: RefreshCycle = { queued: false, running: false };
         this.connection = connection;
         this.refreshCycle = cycle;
-        this.publish({ status: "live", snapshot: this.projectSnapshot(connection.snapshot) });
         const unsubscribe = connection.subscribe(() => this.queueRefresh(connection, cycle));
+        // The socket source queues events that race its bootstrap snapshot.
+        // Do not reconcile that known-stale snapshot before the queued refresh.
+        if (!cycle.queued) {
+          this.publish({ status: "live", snapshot: this.projectSnapshot(connection.snapshot) });
+        }
         const error = await connection.closed;
         unsubscribe();
         if (this.connection === connection) {
@@ -146,6 +150,9 @@ export class LiveSession implements SessionStateFeed {
           return;
         }
         if (this.stopped || this.connection !== connection || this.refreshCycle !== cycle) return;
+        // An event during the read proves this snapshot may be stale. The loop
+        // already has another refresh queued, so discard it before projection.
+        if (cycle.queued) continue;
         try {
           this.publish({ status: "live", snapshot: this.projectSnapshot(snapshot) });
         } catch (error) {

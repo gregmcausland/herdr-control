@@ -72,6 +72,10 @@ export interface PaneInfo {
   state_labels?: Record<string, string>;
   thread_id?: string;
   run_id?: string;
+  project_id?: string;
+  worktree_id?: string;
+  working_started_at?: string;
+  last_work_duration_ms?: number;
   focused: boolean;
 }
 
@@ -94,10 +98,14 @@ export interface ThreadRunInfo {
   cwd?: string;
   agent_status?: string;
   started_at: string;
+  working_started_at?: string;
+  last_work_duration_ms?: number;
 }
 
 export interface ThreadInfo {
   thread_id: string;
+  project_id?: string;
+  worktree_id?: string;
   title: string;
   agent: string;
   agent_name?: string;
@@ -108,6 +116,70 @@ export interface ThreadInfo {
   updated_at: string;
   archived_at?: string;
   current_run?: ThreadRunInfo;
+}
+
+export interface RepositoryWorktreeInfo {
+  path: string;
+  label: string;
+  branch?: string;
+  is_bare: boolean;
+  is_detached: boolean;
+  is_linked_worktree: boolean;
+  is_prunable: boolean;
+  open_workspace_id?: string;
+}
+
+/** Herdr's authoritative repository/worktree inventory for one repository. */
+export interface RepositoryWorktreeInventory {
+  repo_key: string;
+  repo_name: string;
+  repo_root: string;
+  source_checkout_path: string;
+  source_workspace_id?: string;
+  worktrees: RepositoryWorktreeInfo[];
+}
+
+export interface ProjectInfo {
+  project_id: string;
+  name: string;
+  repo_key: string;
+  repo_root: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorktreeInfo {
+  worktree_id: string;
+  project_id: string;
+  label: string;
+  checkout_path: string;
+  branch?: string;
+  is_linked_worktree: boolean;
+  runtime_workspace_id?: string;
+  removed_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ThreadCreationLocation =
+  | { kind: "project" }
+  | { kind: "worktree"; worktree_id: string }
+  | { kind: "create_worktree"; branch?: string; base?: string; path?: string; label?: string }
+  | { kind: "open_worktree"; path: string; label?: string };
+
+export interface ThreadCreationRequest {
+  agent: string;
+  title?: string;
+  prompt?: string;
+  skip_permissions?: boolean;
+  location: ThreadCreationLocation;
+}
+
+export interface ThreadCreationResult {
+  agent_name: string;
+  workspace_id: string;
+  tab_id: string;
+  pane_id: string;
 }
 
 export interface PaneLayoutSnapshot {
@@ -134,6 +206,9 @@ export interface SessionSnapshot {
   panes: PaneInfo[];
   layouts?: PaneLayoutSnapshot[];
   agents?: AgentInfo[];
+  repositories?: RepositoryWorktreeInventory[];
+  projects?: ProjectInfo[];
+  worktrees?: WorktreeInfo[];
   threads?: ThreadInfo[];
 }
 

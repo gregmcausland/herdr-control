@@ -2,7 +2,12 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { extname, resolve, sep } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
-import type { TerminalClientMessage, TerminalMode, TerminalServerMessage } from "../shared/protocol.js";
+import type {
+  TerminalClientMessage,
+  TerminalMode,
+  TerminalServerMessage,
+  ThreadCreationRequest,
+} from "../shared/protocol.js";
 import {
   ClipboardImageError,
   ClipboardImageStore,
@@ -12,7 +17,12 @@ import { HerdrAdapter } from "./herdr.js";
 import { HerdrSocketSource } from "./herdr-socket.js";
 import { LiveSession, type SessionStateFeed } from "./live-session.js";
 import { isOriginAllowed, type ServerConfig } from "./config.js";
-import { ThreadManager, ThreadNotFoundError, ThreadNotRestorableError } from "./threads.js";
+import {
+  ThreadManager,
+  ThreadNotDeletableError,
+  ThreadNotFoundError,
+  ThreadNotRestorableError,
+} from "./threads.js";
 
 const MIME_TYPES: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
@@ -85,6 +95,49 @@ export function createControlServer(
       }
       return;
     }
+    const creationProjectId = projectThreadCreationFromPath(url.pathname);
+    if (request.method === "POST" && creationProjectId) {
+      try {
+        const creation = threadCreationRequest(await readJsonBody(request, 128 * 1024));
+        const project = threads.getProject(creationProjectId);
+        if (!project) {
+          sendJson(response, 404, { error: `Project ${creationProjectId} was not found` });
+          return;
+        }
+        const projectWorktrees = threads.listWorktrees().filter(
+          (worktree) => worktree.project_id === project.project_id && !worktree.removed_at,
+        );
+        const selectedWorktree = creation.location.kind === "worktree"
+          ? threads.getWorktree(creation.location.worktree_id)
+          : undefined;
+        if (
+          creation.location.kind === "worktree"
+          && (!selectedWorktree || selectedWorktree.project_id !== project.project_id || selectedWorktree.removed_at)
+        ) {
+          sendJson(response, 404, { error: "The selected Worktree was not found in this Project" });
+          return;
+        }
+        const projectWorkspaceId = projectWorktrees.find(
+          (worktree) => worktree.checkout_path === project.repo_root && worktree.runtime_workspace_id,
+        )?.runtime_workspace_id ?? projectWorktrees.find(
+          (worktree) => worktree.runtime_workspace_id,
+        )?.runtime_workspace_id;
+        const result = await herdr.createThread({
+          project,
+          projectWorkspaceId,
+          worktree: selectedWorktree,
+          creation,
+        });
+        session.requestRefresh?.();
+        sendJson(response, 201, { thread: result });
+      } catch (error) {
+        const invalid = error instanceof RequestBodyError;
+        sendJson(response, invalid ? 400 : 502, {
+          error: error instanceof Error ? error.message : "Unable to create Thread",
+        });
+      }
+      return;
+    }
     const threadAction = threadActionFromPath(url.pathname);
     if (request.method === "POST" && threadAction) {
       try {
@@ -105,10 +158,31 @@ export function createControlServer(
       }
       return;
     }
+    const threadId = threadIdFromPath(url.pathname);
+    if (request.method === "DELETE" && threadId) {
+      try {
+        // A fresh snapshot prevents deleting a Thread whose first session reference just appeared.
+        threads.reconcile(await herdr.snapshot());
+        threads.deleteThread(threadId);
+        session.requestRefresh?.();
+        response.writeHead(204).end();
+      } catch (error) {
+        const status = error instanceof ThreadNotFoundError
+          ? 404
+          : error instanceof ThreadNotDeletableError
+            ? 409
+            : 502;
+        sendJson(response, status, {
+          error: error instanceof Error ? error.message : "Unable to delete Thread",
+        });
+      }
+      return;
+    }
     const paneId = paneIdFromPath(url.pathname);
     if (request.method === "DELETE" && paneId) {
       try {
-        const snapshot = session.current().snapshot ?? threads.reconcile(await herdr.snapshot());
+        // Destructive decisions must use current Herdr truth, never the retained stale projection.
+        const snapshot = threads.reconcile(await herdr.snapshot());
         const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
         const agentPane = pane?.agent || snapshot.agents?.some((agent) => agent.pane_id === paneId);
         if (!pane) {
@@ -166,8 +240,16 @@ export function createControlServer(
       socket.send(JSON.stringify(message));
     };
 
-    const terminal = herdr.connectTerminal({ target, mode, takeover, cols, rows }, send);
-    send({ type: "ready", mode });
+    let attached = false;
+    const terminal = herdr.connectTerminal({ target, mode, takeover, cols, rows }, (message) => {
+      if (message.type === "frame" && !attached) {
+        attached = true;
+        send({ type: "ready", mode });
+      } else if (message.type === "closed" || message.type === "occupied") {
+        attached = false;
+      }
+      send(message);
+    });
     void herdr.focusPane(target).catch((error: unknown) => {
       send({ type: "error", message: error instanceof Error ? error.message : "Unable to mark pane as viewed" });
     });
@@ -182,7 +264,9 @@ export function createControlServer(
           });
           return;
         }
+        if (message.type === "release") attached = false;
         if (mode === "observe" && message.type !== "release") return;
+        if (mode === "control" && !attached && message.type !== "release") return;
         terminal.send(message);
       } catch (error) {
         send({ type: "error", message: error instanceof Error ? error.message : "Invalid terminal command" });
@@ -272,6 +356,16 @@ function threadActionFromPath(pathname: string): { threadId: string; action: "ar
   return threadId ? { threadId, action: match[2] as "archive" | "restore" } : undefined;
 }
 
+function projectThreadCreationFromPath(pathname: string): string | undefined {
+  const match = /^\/api\/projects\/([^/]+)\/threads$/.exec(pathname);
+  return match ? decodeIdentifier(match[1]) : undefined;
+}
+
+function threadIdFromPath(pathname: string): string | undefined {
+  const match = /^\/api\/threads\/([^/]+)$/.exec(pathname);
+  return match ? decodeIdentifier(match[1]) : undefined;
+}
+
 function paneIdFromPath(pathname: string): string | undefined {
   const match = /^\/api\/panes\/([^/]+)$/.exec(pathname);
   return match ? decodeIdentifier(match[1]) : undefined;
@@ -320,6 +414,107 @@ function readBody(request: IncomingMessage, maxBytes: number): Promise<Buffer> {
       if (!settled) reject(new Error("Clipboard image upload was interrupted"));
     });
   });
+}
+
+class RequestBodyError extends Error {}
+
+async function readJsonBody(request: IncomingMessage, maxBytes: number): Promise<unknown> {
+  try {
+    const body = await readBody(request, maxBytes);
+    return JSON.parse(body.toString("utf8"));
+  } catch (error) {
+    if (error instanceof ClipboardImageError) throw new RequestBodyError("Request body is too large");
+    if (error instanceof SyntaxError) throw new RequestBodyError("Request body must be valid JSON");
+    throw error;
+  }
+}
+
+function threadCreationRequest(value: unknown): ThreadCreationRequest {
+  const request = record(value);
+  const location = record(request?.location);
+  const agent = requiredText(request?.agent, "Agent kind", 32);
+  if (!/^[a-z][a-z0-9_-]{0,31}$/.test(agent)) {
+    throw new RequestBodyError("Agent kind is invalid");
+  }
+  const title = optionalText(request?.title, "Title", 200);
+  const prompt = optionalText(request?.prompt, "Initial message", 100_000);
+  const skipPermissions = optionalBoolean(request?.skip_permissions, "Skip permissions");
+  if (!location) throw new RequestBodyError("A valid Thread location is required");
+  const kind = location?.kind;
+  if (kind === "project") return { agent, title, prompt, skip_permissions: skipPermissions, location: { kind } };
+  if (kind === "worktree") {
+    return {
+      agent,
+      title,
+      prompt,
+      skip_permissions: skipPermissions,
+      location: { kind, worktree_id: requiredIdentifier(location.worktree_id, "Worktree") },
+    };
+  }
+  if (kind === "create_worktree") {
+    return {
+      agent,
+      title,
+      prompt,
+      skip_permissions: skipPermissions,
+      location: {
+        kind,
+        branch: optionalText(location.branch, "Branch", 512),
+        base: optionalText(location.base, "Base", 512),
+        path: optionalText(location.path, "Checkout path", 4_096),
+        label: optionalText(location.label, "Worktree label", 120),
+      },
+    };
+  }
+  if (kind === "open_worktree") {
+    return {
+      agent,
+      title,
+      prompt,
+      skip_permissions: skipPermissions,
+      location: {
+        kind,
+        path: requiredText(location.path, "Checkout path", 4_096),
+        label: optionalText(location.label, "Worktree label", 120),
+      },
+    };
+  }
+  throw new RequestBodyError("A valid Thread location is required");
+}
+
+function optionalBoolean(value: unknown, label: string): boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "boolean") throw new RequestBodyError(`${label} must be true or false`);
+  return value || undefined;
+}
+
+function requiredIdentifier(value: unknown, label: string): string {
+  const identifier = requiredText(value, label, 128);
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,127}$/.test(identifier)) {
+    throw new RequestBodyError(`${label} is invalid`);
+  }
+  return identifier;
+}
+
+function requiredText(value: unknown, label: string, maxLength: number): string {
+  const result = optionalText(value, label, maxLength);
+  if (!result) throw new RequestBodyError(`${label} is required`);
+  return result;
+}
+
+function optionalText(value: unknown, label: string, maxLength: number): string | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string") throw new RequestBodyError(`${label} must be text`);
+  const result = value.trim();
+  if (!result) return undefined;
+  if (result.length > maxLength) throw new RequestBodyError(`${label} is too long`);
+  return result;
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }
 
 function sendJson(response: ServerResponse, status: number, body: unknown): void {

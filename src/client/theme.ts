@@ -27,6 +27,7 @@ interface ThemeColors {
 
 interface ThemeDefinition {
   label: string;
+  appearance: "dark" | "light";
   color: ThemeColors;
   ansi: ITheme;
 }
@@ -34,6 +35,7 @@ interface ThemeDefinition {
 const themes = {
   dracula: {
     label: "Dracula",
+    appearance: "dark",
     color: {
       canvas: "#282a36",
       terminal: "#282a36",
@@ -79,6 +81,7 @@ const themes = {
   },
   catppuccin: {
     label: "Catppuccin Mocha",
+    appearance: "dark",
     color: {
       canvas: "#1e1e2e",
       terminal: "#1e1e2e",
@@ -124,6 +127,7 @@ const themes = {
   },
   tokyoNight: {
     label: "Tokyo Night",
+    appearance: "dark",
     color: {
       canvas: "#1a1b26",
       terminal: "#1a1b26",
@@ -169,6 +173,7 @@ const themes = {
   },
   gruvbox: {
     label: "Gruvbox Dark",
+    appearance: "dark",
     color: {
       canvas: "#282828",
       terminal: "#282828",
@@ -214,6 +219,7 @@ const themes = {
   },
   nord: {
     label: "Nord",
+    appearance: "dark",
     color: {
       canvas: "#2e3440",
       terminal: "#2e3440",
@@ -259,6 +265,7 @@ const themes = {
   },
   catppuccinLatte: {
     label: "Catppuccin Latte",
+    appearance: "light",
     color: {
       canvas: "#eff1f5",
       terminal: "#eff1f5",
@@ -304,6 +311,7 @@ const themes = {
   },
   solarizedLight: {
     label: "Solarized Light",
+    appearance: "light",
     color: {
       canvas: "#fdf6e3",
       terminal: "#fdf6e3",
@@ -349,6 +357,7 @@ const themes = {
   },
   gruvboxLight: {
     label: "Gruvbox Light",
+    appearance: "light",
     color: {
       canvas: "#fbf1c7",
       terminal: "#fbf1c7",
@@ -445,6 +454,23 @@ export function terminalThemeFor(themeId: ThemeId): ITheme {
   };
 }
 
+export function terminalColorProfileFor(themeId: ThemeId): {
+  appearance: "dark" | "light";
+  surface: string;
+  surfaceRaised: string;
+} {
+  const theme = themes[themeId];
+  return {
+    appearance: theme.appearance,
+    surface: theme.color.surface,
+    surfaceRaised: theme.color.surfaceRaised,
+  };
+}
+
+export function terminalMinimumContrastRatio(themeId: ThemeId): number {
+  return themes[themeId].appearance === "light" ? 4.5 : 1;
+}
+
 export function activityColorsFor(themeId: ThemeId): { muted: string; info: string; accent: string } {
   const { textMuted, info, accent } = themes[themeId].color;
   return { muted: textMuted, info, accent };
@@ -476,10 +502,9 @@ export function applyAppTheme(themeId: ThemeId, root: HTMLElement = document.doc
     "--color-danger-text": color.dangerText,
     "--color-idle": color.idle,
     "--color-activity-veil": color.activityVeil,
-    "--font-sans": themeFont.sans,
-    "--font-mono": themeFont.mono,
   };
 
   for (const [name, value] of Object.entries(variables)) root.style.setProperty(name, value);
+  root.style.colorScheme = themes[themeId].appearance;
   document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute("content", color.canvas);
 }

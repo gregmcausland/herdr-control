@@ -3,6 +3,7 @@ import {
   activityColorsFor,
   readThemePreference,
   terminalThemeFor,
+  terminalMinimumContrastRatio,
   themeOptions,
 } from "./theme";
 
@@ -28,6 +29,8 @@ describe("theme catalog", () => {
         brightWhite: expect.stringMatching(/^#[0-9a-f]{6}$/i),
       });
     }
+    expect(terminalMinimumContrastRatio("dracula")).toBe(1);
+    expect(terminalMinimumContrastRatio("solarizedLight")).toBe(4.5);
   });
 
   it("falls back safely when a stored theme is no longer available", () => {

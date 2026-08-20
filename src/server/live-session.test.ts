@@ -27,6 +27,7 @@ const snapshot: SessionSnapshot = {
 
 class FakeConnection implements SessionStateConnection {
   private listener?: () => void;
+  private queuedChange = false;
   private resolveClosed!: (error: Error | undefined) => void;
   private readonly refreshes: Array<Promise<SessionSnapshot>> = [];
   readonly closed = new Promise<Error | undefined>((resolve) => (this.resolveClosed = resolve));
@@ -36,6 +37,10 @@ class FakeConnection implements SessionStateConnection {
 
   subscribe(listener: () => void): () => void {
     this.listener = listener;
+    if (this.queuedChange) {
+      this.queuedChange = false;
+      listener();
+    }
     return () => {
       if (this.listener === listener) this.listener = undefined;
     };
@@ -53,7 +58,8 @@ class FakeConnection implements SessionStateConnection {
   }
 
   emitChange(): void {
-    this.listener?.();
+    if (this.listener) this.listener();
+    else this.queuedChange = true;
   }
 
   disconnect(error?: Error): void {
@@ -119,7 +125,11 @@ describe("LiveSession", () => {
 
   it("refreshes again when state changes during an in-flight snapshot", async () => {
     const source = new FakeSource();
-    const session = new LiveSession(source, 1, 1);
+    const projected: SessionSnapshot[] = [];
+    const session = new LiveSession(source, 1, 1, (next) => {
+      projected.push(next);
+      return next;
+    });
     const connection = source.open(snapshot);
     await vi.waitFor(() => expect(session.current().status).toBe("live"));
 
@@ -135,6 +145,26 @@ describe("LiveSession", () => {
 
     await vi.waitFor(() => expect(session.current().snapshot).toBe(finalSnapshot));
     expect(connection.refreshCalls).toBe(2);
+    expect(projected).toEqual([snapshot, finalSnapshot]);
+    session.close();
+  });
+
+  it("does not reconcile a bootstrap snapshot invalidated before subscription", async () => {
+    const source = new FakeSource();
+    const projected: SessionSnapshot[] = [];
+    const session = new LiveSession(source, 1, 1, (next) => {
+      projected.push(next);
+      return next;
+    });
+    const connection = source.open(snapshot);
+    const finalSnapshot = { ...snapshot, panes: [] };
+    connection.queueRefresh(finalSnapshot);
+    connection.emitChange();
+
+    await vi.waitFor(() => expect(session.current().snapshot).toBe(finalSnapshot));
+
+    expect(projected).toEqual([finalSnapshot]);
+    expect(connection.refreshCalls).toBe(1);
     session.close();
   });
 

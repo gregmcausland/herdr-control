@@ -4,9 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { PaneInfo, TerminalMode, TerminalServerMessage } from "../shared/protocol";
 import { MobileTerminalControls } from "./MobileTerminalControls";
 import { WorkingActivity } from "./WorkingActivity";
+import { createTerminalColorAdapter, type TerminalColorAdapter } from "./terminal-color-adapter";
 import { attachTerminalInput, type TerminalInputController } from "./terminal-input";
 import { attachTerminalViewport } from "./terminal-viewport";
-import { terminalThemeFor, themeFont, type ThemeId } from "./theme";
+import { terminalMinimumContrastRatio, terminalThemeFor, type ThemeId } from "./theme";
 
 type ConnectionState = "connecting" | "connected" | "occupied" | "disconnected" | "released";
 
@@ -14,6 +15,9 @@ interface Props {
   bridgeUrl: string;
   pane: PaneInfo;
   themeId: ThemeId;
+  fontFamily: string;
+  fontSize: number;
+  cursorBlink: boolean;
   onBack: () => void;
 }
 
@@ -36,11 +40,12 @@ function decodeBase64(value: string): Uint8Array {
   return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
 }
 
-export function TerminalView({ bridgeUrl, pane, themeId, onBack }: Props) {
+export function TerminalView({ bridgeUrl, pane, themeId, fontFamily, fontSize, cursorBlink, onBack }: Props) {
   const screenRef = useRef<HTMLElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | undefined>(undefined);
   const inputRef = useRef<TerminalInputController | undefined>(undefined);
+  const colorAdapterRef = useRef<TerminalColorAdapter | undefined>(undefined);
   const socketRef = useRef<WebSocket | undefined>(undefined);
   const modeRef = useRef<TerminalMode>("control");
   const openRef = useRef<(mode: TerminalMode, takeover?: boolean) => void>(() => undefined);
@@ -102,8 +107,12 @@ export function TerminalView({ bridgeUrl, pane, themeId, onBack }: Props) {
         setState("connected");
         setMessage(incoming.mode === "control" ? "Control" : "Observing");
       } else if (incoming.type === "frame") {
-        if (incoming.full) terminal.reset();
-        terminal.write(decodeBase64(incoming.data));
+        if (incoming.full) {
+          terminal.reset();
+          colorAdapterRef.current?.reset();
+        }
+        const data = decodeBase64(incoming.data);
+        terminal.write(colorAdapterRef.current?.transform(data) ?? data);
       } else if (incoming.type === "occupied") {
         socketRef.current = undefined;
         clearReconnect();
@@ -128,12 +137,14 @@ export function TerminalView({ bridgeUrl, pane, themeId, onBack }: Props) {
 
   useEffect(() => {
     const terminal = new Terminal({
-      cursorBlink: true,
+      cursorBlink,
       convertEol: false,
-      fontFamily: themeFont.mono,
-      fontSize: themeFont.terminalSize,
+      fontFamily,
+      fontSize,
+      minimumContrastRatio: terminalMinimumContrastRatio(themeId),
       theme: terminalThemeFor(themeId),
     });
+    colorAdapterRef.current = createTerminalColorAdapter(themeId);
     const fit = new FitAddon();
     terminal.loadAddon(fit);
     terminal.open(containerRef.current!);
@@ -193,10 +204,11 @@ export function TerminalView({ bridgeUrl, pane, themeId, onBack }: Props) {
       detachViewport();
       input.dispose();
       inputRef.current = undefined;
+      colorAdapterRef.current = undefined;
       terminal.dispose();
       terminalRef.current = undefined;
     };
-  }, [clearReconnect, disconnect, open]);
+  }, [clearReconnect, cursorBlink, disconnect, fontFamily, fontSize, open, themeId]);
 
   useEffect(() => {
     if (pane.agent_status !== "done" || state !== "connected" || document.hidden) return;

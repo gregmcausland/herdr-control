@@ -1,16 +1,31 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import type {
   AgentSessionReference,
+  ProjectInfo,
   SessionSnapshot,
   TerminalClientMessage,
   TerminalMode,
   TerminalServerMessage,
+  ThreadCreationRequest,
+  ThreadCreationResult,
+  WorktreeInfo,
 } from "../shared/protocol.js";
 import type { ThreadRestoreRequest } from "./threads.js";
 import { HerdrRequestError, requestHerdr } from "./herdr-socket.js";
 
 type HerdrSocketRequest = typeof requestHerdr;
+
+const AGENT_START_TIMEOUT_MS = 60_000;
+const AGENT_READY_POLL_MS = 100;
+
+export interface HerdrThreadCreationRequest {
+  project: ProjectInfo;
+  projectWorkspaceId?: string;
+  worktree?: WorktreeInfo;
+  creation: ThreadCreationRequest;
+}
 
 interface HerdrFrame {
   type: "terminal.frame";
@@ -79,11 +94,23 @@ export function resumeArgsFor(agent: string, session: AgentSessionReference): st
   throw new Error(`${agent} sessions of kind ${session.kind} cannot be restored yet`);
 }
 
+/** Translates Control's single launch policy into each harness's native argument. */
+export function permissionBypassArgsFor(agent: string, enabled: boolean): string[] {
+  if (!enabled) return [];
+  if (agent === "codex") return ["--dangerously-bypass-approvals-and-sandbox"];
+  if (agent === "claude") return ["--dangerously-skip-permissions"];
+  if (agent === "gemini") return ["--approval-mode=yolo"];
+  if (agent === "pi") return ["--approve"];
+  if (agent === "opencode") return ["--auto"];
+  throw new Error(`${agent} does not have a configured permission-bypass launch mode`);
+}
+
 export class HerdrTerminalConnection {
   private readonly child: ChildProcessWithoutNullStreams;
   private stderr = "";
   private receivedClose = false;
   private disposed = false;
+  private attached = false;
   private keyQueue: Promise<unknown> = Promise.resolve();
 
   constructor(
@@ -105,7 +132,11 @@ export class HerdrTerminalConnection {
     lines.on("line", (line) => {
       try {
         const message = translateHerdrRecord(JSON.parse(line) as HerdrRecord);
-        if (message.type === "closed" || message.type === "occupied") this.receivedClose = true;
+        if (message.type === "frame") this.attached = true;
+        if (message.type === "closed" || message.type === "occupied") {
+          this.attached = false;
+          this.receivedClose = true;
+        }
         this.emit(message);
       } catch {
         this.emit({ type: "error", message: "Herdr emitted an invalid terminal record" });
@@ -139,6 +170,12 @@ export class HerdrTerminalConnection {
 
   send(message: TerminalClientMessage): void {
     if (this.disposed || !this.child.stdin.writable) return;
+    if (message.type === "release") {
+      this.attached = false;
+      this.write({ type: "terminal.release" });
+      return;
+    }
+    if (!this.attached) return;
 
     const logicalKey = message.type === "key"
       ? message.key
@@ -168,6 +205,7 @@ export class HerdrTerminalConnection {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.attached = false;
     if (this.child.stdin.writable) {
       this.write({ type: "terminal.release" });
       this.child.stdin.end();
@@ -183,10 +221,13 @@ export class HerdrTerminalConnection {
 
   private queueKey(key: string): void {
     this.keyQueue = this.keyQueue
-      .then(() => requestHerdr(this.socketPath, "pane.send_keys", {
-        pane_id: this.target,
-        keys: [key],
-      }))
+      .then(() => {
+        if (this.disposed || !this.attached) return;
+        return requestHerdr(this.socketPath, "pane.send_keys", {
+          pane_id: this.target,
+          keys: [key],
+        });
+      })
       .catch((error: unknown) => {
         this.emit({
           type: "error",
@@ -277,6 +318,172 @@ export class HerdrAdapter {
     }
   }
 
+  /** Creates one dedicated Herdr tab, starts its agent, then optionally prompts it. */
+  async createThread(request: HerdrThreadCreationRequest): Promise<ThreadCreationResult> {
+    const title = creationTitle(request.creation);
+    const agentName = creationAgentName(title, request.creation.agent);
+    const location = await this.createThreadLocation(request, title);
+    await this.socketRequest(this.socketPath, "pane.rename", {
+      pane_id: location.paneId,
+      label: title,
+    });
+    const started = await this.socketRequest(this.socketPath, "agent.start", {
+      name: agentName,
+      kind: request.creation.agent,
+      pane_id: location.paneId,
+      timeout_ms: AGENT_START_TIMEOUT_MS,
+      args: permissionBypassArgsFor(request.creation.agent, Boolean(request.creation.skip_permissions)),
+    });
+    await this.waitForStartedAgent(location.paneId, agentName, request.creation.agent, started);
+    const prompt = request.creation.prompt?.trim();
+    if (prompt) {
+      await this.socketRequest(this.socketPath, "agent.prompt", {
+        target: location.paneId,
+        text: prompt,
+      });
+    }
+    return {
+      agent_name: agentName,
+      workspace_id: location.workspaceId,
+      tab_id: location.tabId,
+      pane_id: location.paneId,
+    };
+  }
+
+  /** Herdr acknowledges launch before its detector has registered the new agent. */
+  private async waitForStartedAgent(
+    paneId: string,
+    agentName: string,
+    agentKind: string,
+    started: Record<string, unknown>,
+  ): Promise<void> {
+    if (agentIsReady(started, paneId, agentName, agentKind)) return;
+
+    const deadline = Date.now() + AGENT_START_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      try {
+        const response = await this.socketRequest(this.socketPath, "agent.get", { target: paneId });
+        const agent = responseAgent(response);
+        const detectedName = text(agent?.name);
+        if (detectedName && detectedName !== agentName) {
+          throw new Error(`Herdr started an unexpected agent in ${paneId}`);
+        }
+        if (agentIsReady(response, paneId, agentName, agentKind)) return;
+      } catch (error) {
+        if (!(error instanceof HerdrRequestError) || error.code !== "agent_not_found") throw error;
+      }
+      await delay(AGENT_READY_POLL_MS);
+    }
+
+    throw new Error(`Herdr did not finish starting ${agentName}`);
+  }
+
+  private async createThreadLocation(
+    request: HerdrThreadCreationRequest,
+    title: string,
+  ): Promise<ThreadCreationLocation> {
+    const location = request.creation.location;
+    if (location.kind === "project") {
+      if (request.projectWorkspaceId) {
+        try {
+          return await this.createThreadTab(request.projectWorkspaceId, request.project.repo_root, title);
+        } catch (error) {
+          if (!(error instanceof HerdrRequestError) || error.code !== "workspace_not_found") throw error;
+        }
+      }
+      const created = await this.socketRequest(this.socketPath, "workspace.create", {
+        cwd: request.project.repo_root,
+        label: request.project.name,
+        focus: false,
+      });
+      return this.rootThreadLocation(created, title);
+    }
+
+    if (location.kind === "worktree") {
+      if (!request.worktree) throw new Error("The selected Worktree was not found");
+      if (request.worktree.runtime_workspace_id) {
+        try {
+          return await this.createThreadTab(
+            request.worktree.runtime_workspace_id,
+            request.worktree.checkout_path,
+            title,
+          );
+        } catch (error) {
+          if (!(error instanceof HerdrRequestError) || error.code !== "workspace_not_found") throw error;
+        }
+      }
+      return this.openWorktreeThread(request.project, request.worktree.checkout_path, undefined, title);
+    }
+
+    if (location.kind === "create_worktree") {
+      const created = await this.socketRequest(this.socketPath, "worktree.create", compactRecord({
+        cwd: request.project.repo_root,
+        branch: location.branch?.trim() || undefined,
+        base: location.base?.trim() || undefined,
+        path: location.path?.trim() || undefined,
+        label: location.label?.trim() || undefined,
+        focus: false,
+      }));
+      return this.rootThreadLocation(created, title);
+    }
+
+    return this.openWorktreeThread(
+      request.project,
+      location.path,
+      location.label?.trim() || undefined,
+      title,
+    );
+  }
+
+  private async openWorktreeThread(
+    project: ProjectInfo,
+    path: string,
+    label: string | undefined,
+    title: string,
+  ): Promise<ThreadCreationLocation> {
+    const opened = await this.socketRequest(this.socketPath, "worktree.open", compactRecord({
+      cwd: project.repo_root,
+      path,
+      label,
+      focus: false,
+    }));
+    const root = creationLocationFromResponse(opened);
+    const result = object(opened.result);
+    return result?.already_open === true
+      ? this.createThreadTab(root.workspaceId, path, title)
+      : this.renameRootThreadTab(root, title);
+  }
+
+  private async createThreadTab(
+    workspaceId: string,
+    cwd: string,
+    title: string,
+  ): Promise<ThreadCreationLocation> {
+    const response = await this.socketRequest(this.socketPath, "tab.create", {
+      workspace_id: workspaceId,
+      cwd,
+      label: title,
+      focus: false,
+      env: {},
+    });
+    return creationLocationFromResponse(response);
+  }
+
+  private async rootThreadLocation(
+    response: Record<string, unknown>,
+    title: string,
+  ): Promise<ThreadCreationLocation> {
+    return this.renameRootThreadTab(creationLocationFromResponse(response), title);
+  }
+
+  private async renameRootThreadTab(
+    location: ThreadCreationLocation,
+    title: string,
+  ): Promise<ThreadCreationLocation> {
+    await this.socketRequest(this.socketPath, "tab.rename", { tab_id: location.tabId, label: title });
+    return location;
+  }
+
   private async createRestoreLocation(request: ThreadRestoreRequest): Promise<RestoreLocation> {
     const cwdArgs = [
       ...(request.cwd ? ["--cwd", request.cwd] : []),
@@ -337,6 +544,12 @@ interface RestoreLocation {
   paneId: string;
 }
 
+interface ThreadCreationLocation {
+  workspaceId: string;
+  tabId: string;
+  paneId: string;
+}
+
 interface HerdrCreationResponse {
   result?: {
     root_pane?: { pane_id?: string };
@@ -350,4 +563,67 @@ function parseHerdrResponse(output: string): HerdrCreationResponse {
   const response = JSON.parse(output) as HerdrCreationResponse;
   if (response.error) throw new Error(response.error.message ?? "Herdr command failed");
   return response;
+}
+
+function creationLocationFromResponse(response: Record<string, unknown>): ThreadCreationLocation {
+  const result = object(response.result);
+  const workspace = object(result?.workspace);
+  const tab = object(result?.tab);
+  const pane = object(result?.root_pane);
+  const workspaceId = text(workspace?.workspace_id) ?? text(tab?.workspace_id);
+  const tabId = text(tab?.tab_id);
+  const paneId = text(pane?.pane_id);
+  if (!workspaceId || !tabId || !paneId) throw new Error("Herdr returned an incomplete Thread location");
+  return { workspaceId, tabId, paneId };
+}
+
+function responseAgent(response: Record<string, unknown>): Record<string, unknown> | undefined {
+  return object(object(response.result)?.agent);
+}
+
+function agentIsReady(
+  response: Record<string, unknown>,
+  paneId: string,
+  agentName: string,
+  agentKind: string,
+): boolean {
+  const agent = responseAgent(response);
+  return text(agent?.pane_id) === paneId
+    && text(agent?.agent) === agentKind
+    && (agent?.name === undefined || agent?.name === null || text(agent.name) === agentName)
+    // Herdr 0.8 omits these newer schema fields once detection completes.
+    && agent?.interactive_ready !== false
+    && agent?.launch_pending !== true;
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+export function creationTitle(request: ThreadCreationRequest): string {
+  const explicit = request.title?.trim();
+  if (explicit) return explicit.slice(0, 80);
+  const promptLine = request.prompt?.trim().split(/\r?\n/, 1)[0]?.trim();
+  if (promptLine) return promptLine.slice(0, 80);
+  return `${request.agent.charAt(0).toUpperCase()}${request.agent.slice(1)} thread`;
+}
+
+export function creationAgentName(title: string, agent: string, suffix = randomUUID().slice(0, 6)): string {
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const prefix = /^[a-z]/.test(slug) ? slug : `${agent}_${slug}`;
+  return `${prefix.slice(0, 24).replace(/_+$/g, "")}_${suffix.toLowerCase()}`.slice(0, 32);
+}
+
+function compactRecord(record: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined));
+}
+
+function object(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function text(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }

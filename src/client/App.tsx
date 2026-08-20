@@ -1,18 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import type { PaneInfo, ThreadInfo } from "../shared/protocol";
+import type { PaneInfo, ProjectInfo, ThreadCreationRequest, ThreadInfo } from "../shared/protocol";
 import { TerminalView } from "./TerminalView";
+import { PlusIcon, ThreadCreationDialog } from "./ThreadCreationDialog";
+import { SettingsDialog, SettingsIcon } from "./SettingsDialog";
+import { applyFontSettings, readAppSettings, storeAppSettings } from "./settings";
 import { useLiveSession } from "./live-session";
-import {
-  applyAppTheme,
-  isThemeId,
-  readThemePreference,
-  storeThemePreference,
-  themeLabel,
-  themeOptions,
-} from "./theme";
+import { applyAppTheme } from "./theme";
 import { WorkingActivity } from "./WorkingActivity";
-import { groupPanesByWorkspace } from "./workspace-groups";
+import { groupPanesByProject } from "./workspace-groups";
 import { homePath, panePath, terminalRouteFromPath, threadPath, type TerminalRoute } from "./routes";
+import { workingDuration } from "./working-duration";
 
 const STORAGE_KEY = "herdr-control-host";
 
@@ -30,14 +27,19 @@ function normalizeHost(value: string): string {
 }
 
 function paneTitle(pane: PaneInfo): string {
-  return pane.terminal_title_stripped ?? pane.label ?? pane.display_agent ?? pane.agent ?? pane.pane_id;
+  return pane.label ?? pane.terminal_title_stripped ?? pane.display_agent ?? pane.agent ?? pane.pane_id;
 }
 
-function paneDetail(pane: PaneInfo): string {
+function paneDetail(pane: PaneInfo, now: number): string {
   if (pane.agent) {
     const agent = pane.display_agent ?? pane.agent;
     const status = pane.agent_status ?? "unknown";
-    return `${agent.charAt(0).toUpperCase()}${agent.slice(1)} · ${status.charAt(0).toUpperCase()}${status.slice(1)}`;
+    const duration = workingDuration(pane, now);
+    return [
+      `${agent.charAt(0).toUpperCase()}${agent.slice(1)}`,
+      `${status.charAt(0).toUpperCase()}${status.slice(1)}`,
+      duration,
+    ].filter(Boolean).join(" · ");
   }
   const path = pane.foreground_cwd ?? pane.cwd;
   if (!path) return "Shell";
@@ -80,15 +82,14 @@ function PaneActionDialog({
           {archive ? <ArchiveIcon /> : <TrashIcon />}
         </span>
         <div>
-          <h2>{archive ? "Archive agent?" : "Delete pane?"}</h2>
+          <h2>{archive ? "Archive thread?" : action.thread ? "Delete thread?" : "Delete pane?"}</h2>
           <p>
             {archive
-              ? `${paneTitle(action.pane)} will move to Archived. Its Herdr pane will close only when the workspace can be preserved safely.`
-              : `${paneTitle(action.pane)} will be removed from Control and its terminal will retire when safe.`}
+              ? `${paneTitle(action.pane)} will leave the active view and can be restored later. Its terminal will retire when safe.`
+              : action.thread
+                ? `${paneTitle(action.pane)} has no resumable session yet. It will be permanently removed from Control and its terminal will retire when safe.`
+                : `${paneTitle(action.pane)} will be removed from Control and its terminal will retire when safe.`}
           </p>
-          {archive && !action.thread?.agent_session && (
-            <p className="action-dialog-note">This older session has no reference, so it cannot be restored.</p>
-          )}
           {error && <p className="action-dialog-error">{error}</p>}
         </div>
       </div>
@@ -118,6 +119,17 @@ function TrashIcon() {
   );
 }
 
+function WorktreeIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="4" cy="3" r="1.5" />
+      <circle cx="12" cy="5" r="1.5" />
+      <circle cx="4" cy="13" r="1.5" />
+      <path d="M4 4.5v7M5.5 8h1.75A4.75 4.75 0 0 0 12 6.5" />
+    </svg>
+  );
+}
+
 export function App() {
   const [hostInput, setHostInput] = useState(initialHost);
   const [bridgeUrl, setBridgeUrl] = useState(() => normalizeHost(initialHost()));
@@ -125,17 +137,29 @@ export function App() {
   const [terminalRoute, setTerminalRoute] = useState<TerminalRoute | undefined>(
     () => terminalRouteFromPath(window.location.pathname),
   );
-  const [themeId, setThemeId] = useState(readThemePreference);
+  const [settings, setSettings] = useState(readAppSettings);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [paneAction, setPaneAction] = useState<PaneAction>();
   const [pendingAction, setPendingAction] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const [restoringThreadId, setRestoringThreadId] = useState<string>();
+  const [creationProject, setCreationProject] = useState<ProjectInfo>();
+  const [creationPending, setCreationPending] = useState(false);
+  const [creationError, setCreationError] = useState<string>();
+  const [clock, setClock] = useState(Date.now);
   const liveSession = useLiveSession(bridgeUrl);
   const snapshot = liveSession.snapshot;
-  const archivedThreads = snapshot?.threads?.filter((thread) => thread.lifecycle === "archived") ?? [];
+  const archivedThreads = snapshot?.threads?.filter(
+    (thread) => thread.lifecycle === "archived" && thread.agent_session,
+  ) ?? [];
   const archivedThreadIds = new Set(archivedThreads.map((thread) => thread.thread_id));
-  const workspaceGroups = snapshot
-    ? groupPanesByWorkspace(
+  const linkedWorktreeIds = new Set(
+    snapshot?.worktrees?.filter((worktree) => worktree.is_linked_worktree).map((worktree) => worktree.worktree_id),
+  );
+  const projectGroups = snapshot
+    ? groupPanesByProject(
+        snapshot.projects ?? [],
+        snapshot.worktrees ?? [],
         snapshot.workspaces,
         snapshot.panes.filter((pane) => !pane.thread_id || !archivedThreadIds.has(pane.thread_id)),
       )
@@ -145,11 +169,22 @@ export function App() {
     : terminalRoute?.kind === "pane"
       ? snapshot?.panes.find((pane) => pane.pane_id === terminalRoute.id)
       : undefined;
+  const hasWorkingDuration = snapshot?.panes.some(
+    (pane) => pane.agent_status === "working" && pane.working_started_at,
+  ) ?? false;
 
   useEffect(() => {
-    applyAppTheme(themeId);
-    storeThemePreference(themeId);
-  }, [themeId]);
+    applyAppTheme(settings.theme);
+    applyFontSettings(settings);
+    storeAppSettings(settings);
+  }, [settings]);
+
+  useEffect(() => {
+    if (!hasWorkingDuration) return;
+    setClock(Date.now());
+    const interval = window.setInterval(() => setClock(Date.now()), 1_000);
+    return () => window.clearInterval(interval);
+  }, [hasWorkingDuration]);
 
   useEffect(() => {
     const followBrowserHistory = () => setTerminalRoute(terminalRouteFromPath(window.location.pathname));
@@ -199,7 +234,9 @@ export function App() {
     try {
       const path = paneAction.kind === "archive"
         ? `/api/threads/${encodeURIComponent(paneAction.pane.thread_id!)}/archive`
-        : `/api/panes/${encodeURIComponent(paneAction.pane.pane_id)}`;
+        : paneAction.thread
+          ? `/api/threads/${encodeURIComponent(paneAction.thread.thread_id)}`
+          : `/api/panes/${encodeURIComponent(paneAction.pane.pane_id)}`;
       await sendAction(path, paneAction.kind === "archive" ? "POST" : "DELETE");
       setPaneAction(undefined);
     } catch (error) {
@@ -221,12 +258,38 @@ export function App() {
     }
   }
 
+  async function createThread(request: ThreadCreationRequest) {
+    if (!creationProject) return;
+    setCreationPending(true);
+    setCreationError(undefined);
+    try {
+      const response = await fetch(
+        `${bridgeUrl}/api/projects/${encodeURIComponent(creationProject.project_id)}/threads`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request),
+        },
+      );
+      const body = await response.json().catch(() => undefined) as { error?: string } | undefined;
+      if (!response.ok) throw new Error(body?.error ?? `Request failed with status ${response.status}`);
+      setCreationProject(undefined);
+    } catch (error) {
+      setCreationError(error instanceof Error ? error.message : "Unable to create Thread");
+    } finally {
+      setCreationPending(false);
+    }
+  }
+
   if (activePane) {
     return (
       <TerminalView
         bridgeUrl={bridgeUrl}
         pane={activePane}
-        themeId={themeId}
+        themeId={settings.theme}
+        fontFamily={settings.terminalFontFamily}
+        fontSize={settings.terminalFontSize}
+        cursorBlink={settings.terminalCursorBlink}
         onBack={returnHome}
       />
     );
@@ -243,28 +306,15 @@ export function App() {
           <span className={`connection-status ${liveSession.status}`}>
             {liveSession.status === "live" ? "Live" : liveSession.status === "stale" ? "Reconnecting" : "Connecting"}
           </span>
-          <label className="theme-picker" title={`Theme: ${themeLabel(themeId)}`}>
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 3a9 9 0 1 0 0 18h1.2a1.8 1.8 0 0 0 0-3.6h-.7a1.6 1.6 0 0 1 0-3.2H15A6 6 0 0 0 21 8.3C19.4 5.1 16 3 12 3Z" />
-              <circle cx="7.5" cy="10" r=".8" />
-              <circle cx="10" cy="6.8" r=".8" />
-              <circle cx="14" cy="6.5" r=".8" />
-              <circle cx="17.2" cy="9" r=".8" />
-            </svg>
-            <span className="theme-picker-label">{themeLabel(themeId)}</span>
-            <span className="theme-picker-chevron" aria-hidden="true">⌄</span>
-            <select
-              aria-label="Theme"
-              value={themeId}
-              onChange={(event) => {
-                if (isThemeId(event.target.value)) setThemeId(event.target.value);
-              }}
-            >
-              {themeOptions.map((option) => (
-                <option key={option.id} value={option.id}>{option.label}</option>
-              ))}
-            </select>
-          </label>
+          <button
+            className="secondary icon-button settings-trigger"
+            type="button"
+            aria-label="Settings"
+            title="Settings"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <SettingsIcon />
+          </button>
           <button
             className="secondary connection-trigger"
             type="button"
@@ -304,51 +354,77 @@ export function App() {
           {snapshot ? "Showing the last known state. " : ""}{liveSession.message ?? "Unable to connect to bridge"}
         </p>
       )}
-      {!paneAction && actionError && <p className="notice error">{actionError}</p>}
+      {!paneAction && !creationProject && actionError && <p className="notice error">{actionError}</p>}
 
       {snapshot && (
         <section className="inventory">
-          {workspaceGroups.map(({ workspace, panes }) => (
-            <section className="workspace-group" key={workspace.workspace_id}>
-              <h3 className="workspace-divider">{workspace.label}</h3>
-              <div className="pane-list">
-                {panes.map((pane) => (
-                  <div className="pane-row" key={pane.pane_id}>
+          {projectGroups.map(({ id, label, project, panes }) => (
+            <section className="workspace-group" key={id}>
+              <h3 className="workspace-divider">
+                <span>{label}</span>
+                {project && (
+                  <button
+                    className="project-create secondary icon-button"
+                    type="button"
+                    disabled={liveSession.status !== "live"}
+                    aria-label={`New Thread in ${project.name}`}
+                    title={`New Thread in ${project.name}`}
+                    onClick={() => {
+                      setCreationError(undefined);
+                      setCreationProject(project);
+                    }}
+                  >
+                    <PlusIcon />
+                  </button>
+                )}
+              </h3>
+              {panes.length > 0 && <div className="pane-list">
+                {panes.map((pane) => {
+                  const thread = snapshot.threads?.find((candidate) => candidate.thread_id === pane.thread_id);
+                  const kind = thread?.agent_session ? "archive" : "delete";
+                  return <div className="pane-row" key={pane.pane_id}>
                     <button
                       className={`pane ${pane.agent_status === "working" ? "working" : ""}`}
                       title={pane.pane_id}
                       aria-label={`Open ${paneTitle(pane)}`}
                       onClick={() => openPane(pane)}
                     >
-                      {pane.agent_status === "working" && <WorkingActivity themeId={themeId} />}
+                      {pane.agent_status === "working" && <WorkingActivity themeId={settings.theme} />}
                       <span
                         className={`status ${pane.agent_status ?? "unknown"}`}
                         title={pane.agent_status ?? "unknown"}
                       />
                       <span className="pane-copy">
                         <strong>{paneTitle(pane)}</strong>
-                        <small>{paneDetail(pane)}</small>
+                        <small className="pane-detail">
+                          {pane.worktree_id && linkedWorktreeIds.has(pane.worktree_id) && (
+                            <span className="worktree-indicator" title="Worktree">
+                              <WorktreeIcon />
+                            </span>
+                          )}
+                          <span>{paneDetail(pane, clock)}</span>
+                        </small>
                       </span>
                     </button>
                     <button
                       className="pane-manage secondary icon-button"
                       type="button"
-                      aria-label={`${pane.thread_id ? "Archive" : "Delete"} ${paneTitle(pane)}`}
-                      title={pane.thread_id ? "Archive agent" : "Delete pane"}
+                      aria-label={`${kind === "archive" ? "Archive" : "Delete"} ${paneTitle(pane)}`}
+                      title={kind === "archive" ? "Archive thread" : thread ? "Delete thread" : "Delete pane"}
                       onClick={() => {
                         setActionError(undefined);
                         setPaneAction({
-                          kind: pane.thread_id ? "archive" : "delete",
+                          kind,
                           pane,
-                          thread: snapshot.threads?.find((thread) => thread.thread_id === pane.thread_id),
+                          thread,
                         });
                       }}
                     >
-                      {pane.thread_id ? <ArchiveIcon /> : <TrashIcon />}
+                      {kind === "archive" ? <ArchiveIcon /> : <TrashIcon />}
                     </button>
                   </div>
-                ))}
-              </div>
+                })}
+              </div>}
             </section>
           ))}
           {archivedThreads.length > 0 && (
@@ -376,6 +452,16 @@ export function App() {
           )}
         </section>
       )}
+      {settingsOpen && (
+        <SettingsDialog
+          settings={settings}
+          onCancel={() => setSettingsOpen(false)}
+          onSave={(nextSettings) => {
+            setSettings(nextSettings);
+            setSettingsOpen(false);
+          }}
+        />
+      )}
       {paneAction && (
         <PaneActionDialog
           action={paneAction}
@@ -386,6 +472,23 @@ export function App() {
             setActionError(undefined);
           }}
           onConfirm={() => void confirmPaneAction()}
+        />
+      )}
+      {creationProject && snapshot && (
+        <ThreadCreationDialog
+          project={creationProject}
+          worktrees={(snapshot.worktrees ?? []).filter(
+            (worktree) => worktree.project_id === creationProject.project_id && !worktree.removed_at,
+          )}
+          error={creationError}
+          pending={creationPending}
+          defaultAgent={settings.defaultAgent}
+          defaultSkipPermissions={settings.defaultSkipPermissions}
+          onCancel={() => {
+            setCreationProject(undefined);
+            setCreationError(undefined);
+          }}
+          onCreate={(request) => void createThread(request)}
         />
       )}
     </main>

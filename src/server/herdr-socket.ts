@@ -1,5 +1,9 @@
 import { createConnection } from "node:net";
-import type { SessionSnapshot } from "../shared/protocol.js";
+import type {
+  RepositoryWorktreeInfo,
+  RepositoryWorktreeInventory,
+  SessionSnapshot,
+} from "../shared/protocol.js";
 import type { SessionStateConnection, SessionStateSource } from "./live-session.js";
 
 const REQUEST_TIMEOUT_MS = 5_000;
@@ -24,6 +28,9 @@ const LIFECYCLE_SUBSCRIPTIONS = [
   "workspace.reordered",
   "workspace.closed",
   "workspace.focused",
+  "worktree.created",
+  "worktree.opened",
+  "worktree.removed",
   "tab.created",
   "tab.closed",
   "tab.focused",
@@ -179,7 +186,90 @@ async function requestSnapshot(socketPath: string): Promise<SessionSnapshot> {
   if (!snapshot || !Array.isArray(snapshot.workspaces) || !Array.isArray(snapshot.tabs) || !Array.isArray(snapshot.panes)) {
     throw new Error("Herdr returned an invalid session snapshot");
   }
-  return snapshot;
+  const selectors = inventorySelectors(snapshot);
+  const inventories = await Promise.all(selectors.map(async (params) => {
+    try {
+      const inventoryResponse = await requestHerdr(socketPath, "worktree.list", params);
+      return worktreeInventoryFromResponse(inventoryResponse);
+    } catch {
+      // A workspace need not belong to a Git repository. Its runtime remains
+      // valid even when Herdr cannot provide a worktree inventory for it.
+      return undefined;
+    }
+  }));
+  const repositories = new Map<string, RepositoryWorktreeInventory>();
+  for (const inventory of inventories) {
+    if (inventory) repositories.set(inventory.repo_key, inventory);
+  }
+  return { ...snapshot, repositories: [...repositories.values()] };
+}
+
+function inventorySelectors(snapshot: SessionSnapshot): Array<Record<string, unknown>> {
+  const knownRepositories = new Set<string>();
+  const selectors: Array<Record<string, unknown>> = [];
+  for (const workspace of snapshot.workspaces) {
+    const repoKey = workspace.worktree?.repo_key;
+    if (repoKey && knownRepositories.has(repoKey)) continue;
+    if (repoKey) knownRepositories.add(repoKey);
+    selectors.push({ workspace_id: workspace.workspace_id });
+  }
+  const seenCwds = new Set<string>();
+  for (const pane of snapshot.panes) {
+    const cwd = pane.foreground_cwd ?? pane.cwd;
+    if (!cwd || seenCwds.has(cwd)) continue;
+    seenCwds.add(cwd);
+    selectors.push({ cwd });
+  }
+  return selectors;
+}
+
+export function worktreeInventoryFromResponse(
+  response: Record<string, unknown>,
+): RepositoryWorktreeInventory | undefined {
+  const result = record<Record<string, unknown>>(response.result);
+  const source = record<Record<string, unknown>>(result?.source);
+  if (!result || !source || !Array.isArray(result.worktrees)) return undefined;
+  const repoKey = string(source.repo_key);
+  const repoName = string(source.repo_name);
+  const repoRoot = string(source.repo_root);
+  const sourceCheckoutPath = string(source.source_checkout_path);
+  if (!repoKey || !repoName || !repoRoot || !sourceCheckoutPath) return undefined;
+
+  const worktrees = result.worktrees.map(worktreeFromValue);
+  // Never publish a partial inventory: reconciliation treats an inventory as
+  // complete and may mark absent Worktrees as removed.
+  if (worktrees.some((worktree) => !worktree)) return undefined;
+  return {
+    repo_key: repoKey,
+    repo_name: repoName,
+    repo_root: repoRoot,
+    source_checkout_path: sourceCheckoutPath,
+    source_workspace_id: string(source.source_workspace_id),
+    worktrees: worktrees as RepositoryWorktreeInfo[],
+  };
+}
+
+function worktreeFromValue(value: unknown): RepositoryWorktreeInfo | undefined {
+  const worktree = record<Record<string, unknown>>(value);
+  const path = string(worktree?.path);
+  const label = string(worktree?.label);
+  if (
+    !worktree || !path || !label
+    || typeof worktree.is_bare !== "boolean"
+    || typeof worktree.is_detached !== "boolean"
+    || typeof worktree.is_linked_worktree !== "boolean"
+    || typeof worktree.is_prunable !== "boolean"
+  ) return undefined;
+  return {
+    path,
+    label,
+    branch: string(worktree.branch),
+    is_bare: worktree.is_bare,
+    is_detached: worktree.is_detached,
+    is_linked_worktree: worktree.is_linked_worktree,
+    is_prunable: worktree.is_prunable,
+    open_workspace_id: string(worktree.open_workspace_id),
+  };
 }
 
 /** Performs a single documented Herdr socket action. */

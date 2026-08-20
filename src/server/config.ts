@@ -27,7 +27,8 @@ export function loadConfig(environment = process.env): ServerConfig {
     statePath: environment.HERDR_CONTROL_STATE
       ?? join(environment.XDG_STATE_HOME ?? join(homedir(), ".local", "state"), "herdr-control", "control.db"),
     allowedOrigins: new Set(
-      (environment.HERDR_CONTROL_ALLOWED_ORIGINS ?? "http://localhost:5173,http://127.0.0.1:5173")
+      (environment.HERDR_CONTROL_ALLOWED_ORIGINS
+        ?? `http://localhost:${port},http://127.0.0.1:${port},http://localhost:5173,http://127.0.0.1:5173`)
         .split(",")
         .map((origin) => origin.trim())
         .filter(Boolean),
@@ -38,11 +39,5 @@ export function loadConfig(environment = process.env): ServerConfig {
 export function isOriginAllowed(request: IncomingMessage, allowedOrigins: Set<string>): boolean {
   const origin = request.headers.origin;
   if (!origin) return true;
-  if (allowedOrigins.has(origin)) return true;
-
-  try {
-    return new URL(origin).host === request.headers.host;
-  } catch {
-    return false;
-  }
+  return allowedOrigins.has(origin);
 }

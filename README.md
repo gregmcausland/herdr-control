@@ -20,19 +20,35 @@ Working today:
 
 - Discover Herdr workspaces, tabs, and panes.
 - Keep workspace and agent state live through Herdr's socket event stream.
+- Persist repository Projects and their Worktrees independently of Herdr's
+  replaceable workspace layout, while projecting current workspace associations
+  from Herdr's own worktree inventory.
+- Start a new agent from a Project with an optional existing, new, or attached
+  Worktree. Every created agent receives its own Herdr tab, and the resulting
+  Thread and Run are adopted from Herdr's next authoritative snapshot. A
+  typeahead agent picker can also request the harness's native permission-bypass
+  launch mode for Codex, Claude, Gemini, Pi, or OpenCode. Browser-local settings
+  provide the default agent and permission choice for each new Thread.
 - Adopt recognized agent panes into durable Threads and record each transient
   execution as a Run across bridge restarts.
 - Archive agent Threads in Control; retire their live pane when Herdr says it
   is safe, or preserve the protected worktree runtime while following archived
   visuals. Restore supported inactive sessions into a fresh Run when a provider
-  reference is available.
+  reference is available. Threads that have not gained a session reference are
+  deleted instead of retained in an archive they could never leave.
 - Remove transient shell panes from Control immediately and retire their Herdr
   resources when safe, without turning them into durable Threads.
 - Present a stable, workspace-grouped pane overview without moving panes as
   their activity changes.
+- Show the live or most recently completed working duration beside each agent's
+  status.
+- Store browser-local theme, app and terminal fonts, text sizing, terminal cursor,
+  default agent, and permission-bypass preferences behind the Settings control.
 - Switch the app and terminal together between Dracula, Catppuccin Mocha,
   Tokyo Night, Gruvbox Dark, Nord, Catppuccin Latte, Solarized Light, and
-  Gruvbox Light palettes.
+  Gruvbox Light palettes. Light terminals adapt dark true-colour surfaces
+  emitted by agent interfaces locally and enforce readable text contrast,
+  without changing the shared Herdr process.
 - Render and control live shells and full-screen coding-agent interfaces.
 - Link to and refresh individual terminal views without losing the selected pane.
 - Resize, scroll, type, paste text, and send terminal keys through Herdr's
@@ -133,16 +149,20 @@ or untrusted network.
 Recognized agent panes are adopted automatically. Herdr Control stores their
 lifecycle metadata and stable identity, not terminal output or reconstructed
 conversation transcripts. Restore is offered only when Herdr reports a provider
-session reference that Herdr Control knows how to resume. Plain shell panes
-remain transient and can be deleted, but are never archived.
+session reference that Herdr Control knows how to resume. Until an agent exposes
+that reference, Control offers Delete instead: the Thread is removed permanently
+and never appears in Archived. Plain shell panes remain transient and can be
+deleted, but are never archived.
 
 Archiving and plain-pane deletion take effect in Control immediately. Retiring
 the associated Herdr pane is asynchronous: a pane protected by Herdr's worktree
 guard remains hidden and is retried after terminal topology changes.
 
-Project persistence is the next lifecycle layer: a durable Project will own its
-Threads and checkout identity while Herdr workspaces, tabs, and panes remain
-replaceable runtime resources.
+Projects, Worktrees, Threads, and Runs are durable Control concepts. Herdr's
+workspaces, tabs, panes, terminal IDs, agent status, and worktree-open state are
+runtime facts and are reconciled from complete snapshots. Closing a Herdr pane
+ends its Run and archives its Thread; closing a workspace ends its Worktree
+Runtime without deleting the Project, Worktree, Thread, or Run history.
 
 For resumable Codex, Claude, and Pi Threads, install Herdr's provider
 integrations once on the machine running the agents:
