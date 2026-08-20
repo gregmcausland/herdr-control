@@ -1,75 +1,62 @@
 # Herdr Control
 
-Herdr Control is an experimental browser interface for
-[Herdr](https://herdr.dev), a terminal workspace manager for AI coding agents.
+Herdr Control is an experimental browser interface for supervising AI coding
+agents running in [Herdr](https://herdr.dev), a terminal workspace manager.
 
-Herdr keeps agents, shells, and other terminal programs running in persistent
-workspaces. Herdr Control makes those workspaces accessible from a desktop or
-phone browser, so you can check running work, move between panes, and interact
-with a terminal without relocating or restarting its process.
+It groups active work by repository, shows which agents are working or waiting,
+lets you start and revisit agent threads, and keeps full terminal control
+available when you need it. The interface works on desktop and phone browsers.
 
-This is not a hosted terminal service. A small companion bridge runs beside
-Herdr and connects the browser to terminals that Herdr already owns.
+Agents continue running on your machine under Herdr. Control adds a small local
+browser bridge; it is not a hosted terminal service and does not move or restart
+the processes Herdr owns.
 
 ## Project status
 
-Herdr Control is an early public prototype. The core terminal path has been
-validated, but the interface and protocol may still change.
+Herdr Control is an early public prototype. The main terminal and agent
+supervision paths work, but the interface and its integration with Herdr may
+still change.
 
-Working today:
+### What you can do
 
-- Discover Herdr workspaces, tabs, and panes.
-- Keep workspace and agent state live through Herdr's socket event stream.
-- Persist repository Projects and their Worktrees independently of Herdr's
-  replaceable workspace layout, while projecting current workspace associations
-  from Herdr's own worktree inventory.
-- Start a new agent from a Project with an optional existing, new, or attached
-  Worktree. Every created agent receives its own Herdr tab, and the resulting
-  Thread and Run are adopted from Herdr's next authoritative snapshot. A
-  typeahead agent picker can also request the harness's native permission-bypass
-  launch mode for Codex, Claude, Gemini, Pi, or OpenCode. Browser-local settings
-  provide the default agent and permission choice for each new Thread.
-- Adopt recognized agent panes into durable Threads and record each transient
-  execution as a Run across bridge restarts.
-- Archive agent Threads in Control; retire their live pane when Herdr says it
-  is safe, or preserve the protected worktree runtime while following archived
-  visuals. Restore supported inactive sessions into a fresh Run when a provider
-  reference is available. Threads that have not gained a session reference are
-  deleted instead of retained in an archive they could never leave.
-- Remove transient shell panes from Control immediately and retire their Herdr
-  resources when safe, without turning them into durable Threads.
-- Present a stable, workspace-grouped pane overview without moving panes as
-  their activity changes.
-- Show the live or most recently completed working duration beside each agent's
-  status.
-- Store browser-local theme, app and terminal fonts, text sizing, terminal cursor,
-  default agent, and permission-bypass preferences behind the Settings control.
-- Switch the app and terminal together between Dracula, Catppuccin Mocha,
-  Tokyo Night, Gruvbox Dark, Nord, Catppuccin Latte, Solarized Light, and
-  Gruvbox Light palettes. Light terminals adapt dark true-colour surfaces
-  emitted by agent interfaces locally and enforce readable text contrast,
-  without changing the shared Herdr process.
-- Render and control live shells and full-screen coding-agent interfaces.
-- Link to and refresh individual terminal views without losing the selected pane.
-- Resize, scroll, type, paste text, and send terminal keys through Herdr's
-  keyboard-aware input path, including modified keys such as Shift+Enter.
-- Use a phone-friendly message composer and clipboard-image upload.
-- Observe a busy pane or explicitly take control from another client.
-- Mark completed work as viewed when its terminal is open and visible.
-- Release control while backgrounded and reclaim it automatically when the
-  browser returns or the bridge reconnects, prompting only when another client
-  now owns the terminal.
+- See agents and shells grouped by repository Project, with live status updates
+  from Herdr.
+- Start a configured coding agent in a Project, an existing Worktree, a new
+  Worktree, or an existing checkout. Each agent receives its own Herdr tab.
+- Supply an optional title and initial message when starting an agent.
+- Follow how long an agent has been working and see the duration of its latest
+  completed working period.
+- Open and control shells and full-screen agent interfaces without interrupting
+  their underlying processes.
+- Type, paste text or clipboard images, send modified keys, resize, and scroll
+  from desktop or phone layouts.
+- Observe a terminal controlled by another browser, explicitly take control,
+  and recover control after reconnecting.
+- Archive agent threads and restore supported conversations when Herdr has
+  captured a resumable session reference.
+- Choose from eight light and dark themes and customise interface fonts,
+  terminal fonts, text sizes, cursor behaviour, and new-thread defaults.
 
-The interface now has a focused orchestration foundation: workspaces organise
-the panes, agent state drives their presentation, and active work has a live
-visual treatment. The next stage is to deepen that surface so it becomes easier
-to understand what agents are doing, see which work needs attention, navigate
-active tasks, and supervise work without treating every interaction as a raw
-terminal session. Direct terminal control will remain available as the reliable
-underlying escape hatch.
+Control discovers Projects and Worktrees from Herdr's repository inventory. To
+start a thread from Control, first open a Herdr workspace associated with the
+repository. Projects and thread history then remain available even as Herdr's
+workspace, tab, and pane layout changes.
+
+### Current limitations
+
+- Control has no built-in authentication. Keep the bridge on localhost and use
+  a trusted access layer for remote access.
+- Session restoration currently supports Codex, Claude, and Pi, and requires a
+  session reference reported by the corresponding Herdr integration.
+- A thread that ends before gaining a resumable session reference cannot be
+  restored and is removed rather than placed in the archive.
+- Chromium desktop and a phone-sized Chromium viewport have been validated.
+  Safari and WebKit compatibility remain unverified.
+- The permission-bypass option gives supported agents substantially more
+  autonomy. Use it only in projects and environments you trust.
 
 See [prototype validation](docs/prototype-validation.md) for the behaviours
-tested so far and known compatibility gaps.
+examined so far and known compatibility gaps.
 
 ## How it works
 
@@ -81,59 +68,66 @@ Herdr Control bridge
 Herdr-owned terminal
 ```
 
-Herdr remains responsible for processes and terminal ownership. Herdr Control
-is a narrow browser-facing bridge and UI, which keeps the terminal path separate
-from the evolving orchestration experience around it.
+Herdr remains responsible for running processes, terminal ownership, and the
+current workspace layout. Control adds browser access and stores stable Project,
+Worktree, Thread, and Run metadata. It does not store terminal output or
+reconstruct conversation transcripts.
 
-The bridge bootstraps an authoritative session snapshot, then uses Herdr
-lifecycle and agent-status events to trigger coalesced snapshot refreshes. This
-keeps the browser live without relying on cross-event ordering. If the Herdr
-connection drops, the UI retains the last known state as stale while the bridge
-reconnects and resynchronises.
+If the Herdr connection drops, Control keeps showing the last known state while
+it reconnects. The agents and terminals continue running under Herdr throughout.
 
-## Run locally
+Recognised agent panes are adopted automatically. When a resumable agent pane
+closes, its current run ends and its thread moves to the archive. Agent threads
+without a session reference and ordinary shell panes are not retained as
+restorable history.
+
+## Quick start
 
 Requirements:
 
 - Node.js 22.5 or newer
 - Herdr 0.8 or newer with terminal session control support
+- A running Herdr instance
 
-Install dependencies and start the development bridge and client:
+Install dependencies, build the client and bridge, then start Control:
 
 ```bash
 npm install
-npm run dev
-```
-
-The bridge listens on `127.0.0.1:4173` and Vite serves the client on
-`127.0.0.1:5173`. Open:
-
-```text
-http://127.0.0.1:5173/?host=http://127.0.0.1:4173
-```
-
-The bridge address can also be entered in the UI and is remembered by the
-browser.
-
-## Run the production build
-
-```bash
 npm run build
 npm start
 ```
 
-The bridge serves the built client at `http://127.0.0.1:4173`.
+Open `http://127.0.0.1:4173`.
 
-For remote access, keep the bridge bound to localhost and place it behind a
-trusted access layer. The current tested route uses Tailscale Serve:
+The bridge address can also be entered in the Connection panel and is remembered
+by the browser.
+
+## Remote access
+
+Keep the bridge bound to localhost and place it behind a trusted access layer.
+The currently tested route uses Tailscale Serve:
 
 ```bash
 tailscale serve 4173
 ```
 
-Open the HTTPS address printed by Tailscale. Herdr Control does not currently
-provide its own authentication, so it should not be bound directly to a public
-or untrusted network.
+Open the HTTPS address printed by Tailscale. Do not bind Control directly to a
+public or untrusted network because it does not provide its own authentication.
+
+## Session restoration
+
+For resumable Codex, Claude, and Pi threads, install Herdr's provider
+integrations once on the machine running the agents:
+
+```bash
+herdr integration install codex
+herdr integration install claude
+herdr integration install pi
+```
+
+Restoration is offered only after Herdr reports a supported provider session
+reference. A thread leaves the active view immediately when archived, even if
+Herdr must wait for its worktree before safely retiring the pane.
 
 ## Configuration
 
@@ -143,37 +137,22 @@ or untrusted network.
 | `HERDR_CONTROL_PORT` | `4173` | Bridge port |
 | `HERDR_CONTROL_BIN` | `herdr` | Herdr executable |
 | `HERDR_CONTROL_SOCKET` | Herdr's default socket | Explicit Herdr socket path |
-| `HERDR_CONTROL_STATE` | `~/.local/state/herdr-control/control.db` | Durable Thread and Run database |
-| `HERDR_CONTROL_ALLOWED_ORIGINS` | Local Vite origins | Comma-separated origins for separately hosted clients |
+| `HERDR_CONTROL_STATE` | `~/.local/state/herdr-control/control.db` | Durable Control state database |
+| `HERDR_CONTROL_ALLOWED_ORIGINS` | Local Control and Vite origins | Comma-separated origins for separately hosted clients |
 
-Recognized agent panes are adopted automatically. Herdr Control stores their
-lifecycle metadata and stable identity, not terminal output or reconstructed
-conversation transcripts. Restore is offered only when Herdr reports a provider
-session reference that Herdr Control knows how to resume. Until an agent exposes
-that reference, Control offers Delete instead: the Thread is removed permanently
-and never appears in Archived. Plain shell panes remain transient and can be
-deleted, but are never archived.
+## Development
 
-Archiving and plain-pane deletion take effect in Control immediately. Retiring
-the associated Herdr pane is asynchronous: a pane protected by Herdr's worktree
-guard remains hidden and is retried after terminal topology changes.
-
-Projects, Worktrees, Threads, and Runs are durable Control concepts. Herdr's
-workspaces, tabs, panes, terminal IDs, agent status, and worktree-open state are
-runtime facts and are reconciled from complete snapshots. Closing a Herdr pane
-ends its Run and archives its Thread; closing a workspace ends its Worktree
-Runtime without deleting the Project, Worktree, Thread, or Run history.
-
-For resumable Codex, Claude, and Pi Threads, install Herdr's provider
-integrations once on the machine running the agents:
+Start the bridge and Vite development server:
 
 ```bash
-herdr integration install codex
-herdr integration install claude
-herdr integration install pi
+npm run dev
 ```
 
-## Verification
+Open:
+
+```text
+http://127.0.0.1:5173/?host=http://127.0.0.1:4173
+```
 
 Run the local checks with:
 
