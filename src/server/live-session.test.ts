@@ -82,6 +82,21 @@ class FakeSource implements SessionStateSource {
 }
 
 describe("LiveSession", () => {
+  it("refreshes the projection after a Control-owned state change", async () => {
+    const source = new FakeSource();
+    const session = new LiveSession(source, 1, 1);
+    const connection = source.open(snapshot);
+    await vi.waitFor(() => expect(session.current().status).toBe("live"));
+    const projected = { ...snapshot, panes: [] };
+    connection.queueRefresh(projected);
+
+    session.requestRefresh();
+
+    await vi.waitFor(() => expect(session.current().snapshot).toBe(projected));
+    expect(connection.refreshCalls).toBe(1);
+    session.close();
+  });
+
   it("coalesces socket changes into one authoritative snapshot refresh", async () => {
     const source = new FakeSource();
     const session = new LiveSession(source, 1, 1);

@@ -8,7 +8,7 @@ import { attachTerminalInput, type TerminalInputController } from "./terminal-in
 import { attachTerminalViewport } from "./terminal-viewport";
 import { terminalThemeFor, themeFont, type ThemeId } from "./theme";
 
-type ConnectionState = "connecting" | "connected" | "occupied" | "disconnected";
+type ConnectionState = "connecting" | "connected" | "occupied" | "disconnected" | "released";
 
 interface Props {
   bridgeUrl: string;
@@ -43,25 +43,50 @@ export function TerminalView({ bridgeUrl, pane, themeId, onBack }: Props) {
   const inputRef = useRef<TerminalInputController | undefined>(undefined);
   const socketRef = useRef<WebSocket | undefined>(undefined);
   const modeRef = useRef<TerminalMode>("control");
+  const openRef = useRef<(mode: TerminalMode, takeover?: boolean) => void>(() => undefined);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const reconnectAttemptRef = useRef(0);
+  const wantsConnectionRef = useRef(true);
   const [mode, setMode] = useState<TerminalMode>("control");
   const [state, setState] = useState<ConnectionState>("connecting");
   const [message, setMessage] = useState("Connecting…");
 
-  const disconnect = useCallback((nextMessage: string) => {
+  const clearReconnect = useCallback(() => {
+    if (reconnectTimerRef.current === undefined) return;
+    clearTimeout(reconnectTimerRef.current);
+    reconnectTimerRef.current = undefined;
+  }, []);
+
+  const scheduleReconnect = useCallback(() => {
+    if (!wantsConnectionRef.current || document.hidden || reconnectTimerRef.current !== undefined) return;
+    const delay = Math.min(250 * (2 ** reconnectAttemptRef.current), 4_000);
+    reconnectAttemptRef.current += 1;
+    setState("disconnected");
+    setMessage("Reconnecting…");
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = undefined;
+      if (wantsConnectionRef.current && !document.hidden) openRef.current(modeRef.current);
+    }, delay);
+  }, []);
+
+  const disconnect = useCallback((nextMessage: string, reconnectOnFocus = false) => {
+    clearReconnect();
+    wantsConnectionRef.current = reconnectOnFocus;
     const socket = socketRef.current;
-    if (!socket) return;
     socketRef.current = undefined;
-    if (modeRef.current === "control" && socket.readyState === WebSocket.OPEN) {
+    if (modeRef.current === "control" && socket?.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: "release" }));
     }
-    socket.close();
-    setState("disconnected");
+    socket?.close();
+    setState(reconnectOnFocus ? "disconnected" : "released");
     setMessage(nextMessage);
-  }, []);
+  }, [clearReconnect]);
 
   const open = useCallback((nextMode: TerminalMode, takeover = false) => {
     const terminal = terminalRef.current;
     if (!terminal) return;
+    clearReconnect();
+    wantsConnectionRef.current = true;
     socketRef.current?.close();
     modeRef.current = nextMode;
     setMode(nextMode);
@@ -73,28 +98,33 @@ export function TerminalView({ bridgeUrl, pane, themeId, onBack }: Props) {
     socket.onmessage = (event) => {
       const incoming = JSON.parse(event.data as string) as TerminalServerMessage;
       if (incoming.type === "ready") {
+        reconnectAttemptRef.current = 0;
         setState("connected");
         setMessage(incoming.mode === "control" ? "Control" : "Observing");
       } else if (incoming.type === "frame") {
         if (incoming.full) terminal.reset();
         terminal.write(decodeBase64(incoming.data));
       } else if (incoming.type === "occupied") {
+        socketRef.current = undefined;
+        clearReconnect();
         setState("occupied");
         setMessage("Another browser or direct attach controls this pane.");
+        socket.close();
       } else if (incoming.type === "error") {
         setMessage(incoming.message);
       } else {
-        setState("disconnected");
-        setMessage(incoming.reason);
+        socket.close();
       }
     };
     socket.onclose = () => {
       if (socketRef.current !== socket) return;
-      setState((current) => (current === "occupied" ? current : "disconnected"));
-      setMessage((current) => (current === "Control" || current === "Observing" ? "Disconnected" : current));
+      socketRef.current = undefined;
+      scheduleReconnect();
     };
-    socket.onerror = () => setMessage("Unable to connect to the terminal bridge");
-  }, [bridgeUrl, pane.pane_id]);
+    socket.onerror = () => setMessage("Terminal connection interrupted");
+  }, [bridgeUrl, clearReconnect, pane.pane_id, scheduleReconnect]);
+
+  openRef.current = open;
 
   useEffect(() => {
     const terminal = new Terminal({
@@ -132,22 +162,33 @@ export function TerminalView({ bridgeUrl, pane, themeId, onBack }: Props) {
 
     const observer = new ResizeObserver(() => fit.fit());
     observer.observe(containerRef.current!);
-    const releaseInBackground = () => {
-      if (document.visibilityState === "hidden") disconnect("Control released while app was in background");
+    const followPageVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        if (wantsConnectionRef.current) disconnect("Control released while app was in background", true);
+      } else if (wantsConnectionRef.current && !socketRef.current) {
+        openRef.current(modeRef.current);
+      }
     };
-    const releaseOnPageHide = () => disconnect("Control released while app was in background");
-    document.addEventListener("visibilitychange", releaseInBackground);
+    const releaseOnPageHide = () => {
+      if (wantsConnectionRef.current) disconnect("Control released while app was in background", true);
+    };
+    document.addEventListener("visibilitychange", followPageVisibility);
     window.addEventListener("pagehide", releaseOnPageHide);
+    window.addEventListener("pageshow", followPageVisibility);
     open("control");
 
     return () => {
+      wantsConnectionRef.current = false;
+      clearReconnect();
       const socket = socketRef.current;
+      socketRef.current = undefined;
       if (socket?.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: "release" }));
       }
       socket?.close();
-      document.removeEventListener("visibilitychange", releaseInBackground);
+      document.removeEventListener("visibilitychange", followPageVisibility);
       window.removeEventListener("pagehide", releaseOnPageHide);
+      window.removeEventListener("pageshow", followPageVisibility);
       observer.disconnect();
       detachViewport();
       input.dispose();
@@ -155,7 +196,7 @@ export function TerminalView({ bridgeUrl, pane, themeId, onBack }: Props) {
       terminal.dispose();
       terminalRef.current = undefined;
     };
-  }, [disconnect, open]);
+  }, [clearReconnect, disconnect, open]);
 
   useEffect(() => {
     if (pane.agent_status !== "done" || state !== "connected" || document.hidden) return;
@@ -196,6 +237,9 @@ export function TerminalView({ bridgeUrl, pane, themeId, onBack }: Props) {
         {state === "connected" && mode === "observe" && (
           <button className="terminal-action primary" onClick={() => open("control", true)}>Control here</button>
         )}
+        {state === "released" && (
+          <button className="terminal-action primary" onClick={() => open(mode)}>Reconnect</button>
+        )}
       </header>
       <div className="terminal-frame">
         <div className="terminal-host" ref={containerRef} />
@@ -207,13 +251,12 @@ export function TerminalView({ bridgeUrl, pane, themeId, onBack }: Props) {
         onKey={(data) => inputRef.current?.sendKey(data) ?? false}
         onSendMessage={(text) => inputRef.current?.sendMessage(text) ?? false}
       />
-      {state !== "connected" && (
+      {state === "occupied" && (
         <div className="terminal-overlay">
           <p>{message}</p>
           <div className="overlay-actions">
-            {state === "occupied" && <button onClick={() => open("observe")}>Observe</button>}
-            {state === "occupied" && <button onClick={() => open("control", true)}>Control here</button>}
-            {state === "disconnected" && <button onClick={() => open(mode)}>Reconnect</button>}
+            <button onClick={() => open("observe")}>Observe</button>
+            <button onClick={() => open("control", true)}>Control here</button>
             <button className="secondary" onClick={onBack}>Return to panes</button>
           </div>
         </div>

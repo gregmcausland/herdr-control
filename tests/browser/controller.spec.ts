@@ -27,7 +27,7 @@ test("hands writable control between browser clients explicitly", async ({ brows
 
   await second.getByRole("button", { name: "Control here" }).click();
   await expect(second.locator(".terminal-header small")).toHaveText("Control");
-  await expect(first.getByText("terminal attach taken over", { exact: true })).toBeVisible();
+  await expect(first.getByText("Another browser or direct attach controls this pane.", { exact: true })).toBeVisible();
 
   await second.getByRole("button", { name: "Release" }).click();
   await expect(second.getByText("Control released", { exact: true })).toBeVisible();

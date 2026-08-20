@@ -17,6 +17,7 @@ export interface SessionStateSource {
 export interface SessionStateFeed {
   current(): SessionFeedState;
   subscribe(listener: (state: SessionFeedState) => void): () => void;
+  requestRefresh?(): void;
   close(): void;
 }
 
@@ -40,6 +41,7 @@ export class LiveSession implements SessionStateFeed {
     private readonly source: SessionStateSource,
     private readonly retryDelayMs = 1_000,
     private readonly refreshDelayMs = REFRESH_DELAY_MS,
+    private readonly projectSnapshot: (snapshot: SessionSnapshot) => SessionSnapshot = (snapshot) => snapshot,
   ) {
     void this.run();
   }
@@ -52,6 +54,10 @@ export class LiveSession implements SessionStateFeed {
     this.listeners.add(listener);
     listener(this.state);
     return () => this.listeners.delete(listener);
+  }
+
+  requestRefresh(): void {
+    if (this.connection && this.refreshCycle) this.queueRefresh(this.connection, this.refreshCycle);
   }
 
   close(): void {
@@ -80,7 +86,7 @@ export class LiveSession implements SessionStateFeed {
         const cycle: RefreshCycle = { queued: false, running: false };
         this.connection = connection;
         this.refreshCycle = cycle;
-        this.publish({ status: "live", snapshot: connection.snapshot });
+        this.publish({ status: "live", snapshot: this.projectSnapshot(connection.snapshot) });
         const unsubscribe = connection.subscribe(() => this.queueRefresh(connection, cycle));
         const error = await connection.closed;
         unsubscribe();
@@ -140,7 +146,12 @@ export class LiveSession implements SessionStateFeed {
           return;
         }
         if (this.stopped || this.connection !== connection || this.refreshCycle !== cycle) return;
-        this.publish({ status: "live", snapshot });
+        try {
+          this.publish({ status: "live", snapshot: this.projectSnapshot(snapshot) });
+        } catch (error) {
+          connection.close(error instanceof Error ? error : new Error("Unable to reconcile Thread state"));
+          return;
+        }
       }
     } finally {
       cycle.running = false;

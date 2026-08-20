@@ -36,6 +36,13 @@ export interface WorkspaceInfo {
   tab_count: number;
   pane_count: number;
   focused: boolean;
+  worktree?: {
+    checkout_path: string;
+    is_linked_worktree: boolean;
+    repo_key: string;
+    repo_name: string;
+    repo_root: string;
+  } | null;
 }
 
 export interface TabInfo {
@@ -58,10 +65,49 @@ export interface PaneInfo {
   cwd?: string;
   foreground_cwd?: string;
   agent?: string;
+  name?: string;
   agent_status?: string;
+  agent_session?: AgentSessionReference;
   display_agent?: string;
   state_labels?: Record<string, string>;
+  thread_id?: string;
+  run_id?: string;
   focused: boolean;
+}
+
+export interface AgentSessionReference {
+  source: string;
+  agent: string;
+  kind: string;
+  value: string;
+}
+
+export type ThreadLifecycle = "open" | "archived";
+
+export interface ThreadRunInfo {
+  run_id: string;
+  workspace_id: string;
+  workspace_label: string;
+  tab_id: string;
+  pane_id: string;
+  terminal_id: string;
+  cwd?: string;
+  agent_status?: string;
+  started_at: string;
+}
+
+export interface ThreadInfo {
+  thread_id: string;
+  title: string;
+  agent: string;
+  agent_name?: string;
+  agent_session?: AgentSessionReference;
+  lifecycle: ThreadLifecycle;
+  restoring?: boolean;
+  created_at: string;
+  updated_at: string;
+  archived_at?: string;
+  current_run?: ThreadRunInfo;
 }
 
 export interface PaneLayoutSnapshot {
@@ -88,6 +134,7 @@ export interface SessionSnapshot {
   panes: PaneInfo[];
   layouts?: PaneLayoutSnapshot[];
   agents?: AgentInfo[];
+  threads?: ThreadInfo[];
 }
 
 export type SessionFeedStatus = "connecting" | "live" | "stale";

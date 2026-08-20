@@ -12,6 +12,7 @@ import { HerdrAdapter } from "./herdr.js";
 import { HerdrSocketSource } from "./herdr-socket.js";
 import { LiveSession, type SessionStateFeed } from "./live-session.js";
 import { isOriginAllowed, type ServerConfig } from "./config.js";
+import { ThreadManager, ThreadNotFoundError, ThreadNotRestorableError } from "./threads.js";
 
 const MIME_TYPES: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
@@ -28,8 +29,20 @@ const clientRoot = resolve(process.cwd(), "dist/client");
 export function createControlServer(
   config: ServerConfig,
   herdr = new HerdrAdapter(config.herdrBinary, config.herdrSocketPath),
-  session: SessionStateFeed = new LiveSession(new HerdrSocketSource(config.herdrSocketPath)),
+  providedSession?: SessionStateFeed,
+  providedThreads?: ThreadManager,
 ) {
+  const threads = providedThreads ?? new ThreadManager({
+    path: config.statePath,
+    retirePane: (paneId) => herdr.retirePane(paneId),
+    restoreThread: (request) => herdr.restoreThread(request),
+  });
+  const session = providedSession ?? new LiveSession(
+    new HerdrSocketSource(config.herdrSocketPath),
+    1_000,
+    50,
+    (snapshot) => threads.reconcile(snapshot),
+  );
   const clipboardImages = new ClipboardImageStore();
   const server = createServer(async (request, response) => {
     setCorsHeaders(request, response, config.allowedOrigins);
@@ -50,7 +63,7 @@ export function createControlServer(
     }
     if (request.method === "GET" && url.pathname === "/api/snapshot") {
       try {
-        sendJson(response, 200, session.current().snapshot ?? await herdr.snapshot());
+        sendJson(response, 200, session.current().snapshot ?? threads.reconcile(await herdr.snapshot()));
       } catch (error) {
         sendJson(response, 502, { error: error instanceof Error ? error.message : "Herdr snapshot failed" });
       }
@@ -69,6 +82,46 @@ export function createControlServer(
         const status = error instanceof ClipboardImageError ? error.statusCode : 500;
         const message = error instanceof ClipboardImageError ? error.message : "Unable to stage clipboard image";
         sendJson(response, status, { error: message });
+      }
+      return;
+    }
+    const threadAction = threadActionFromPath(url.pathname);
+    if (request.method === "POST" && threadAction) {
+      try {
+        const thread = threadAction.action === "archive"
+          ? await threads.archive(threadAction.threadId)
+          : await threads.restore(threadAction.threadId);
+        session.requestRefresh?.();
+        sendJson(response, 200, { thread });
+      } catch (error) {
+        const status = error instanceof ThreadNotFoundError
+          ? 404
+          : error instanceof ThreadNotRestorableError
+            ? 409
+            : 502;
+        sendJson(response, status, {
+          error: error instanceof Error ? error.message : `Unable to ${threadAction.action} Thread`,
+        });
+      }
+      return;
+    }
+    const paneId = paneIdFromPath(url.pathname);
+    if (request.method === "DELETE" && paneId) {
+      try {
+        const snapshot = session.current().snapshot ?? threads.reconcile(await herdr.snapshot());
+        const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
+        const agentPane = pane?.agent || snapshot.agents?.some((agent) => agent.pane_id === paneId);
+        if (!pane) {
+          sendJson(response, 404, { error: `Pane ${paneId} was not found` });
+        } else if (agentPane) {
+          sendJson(response, 409, { error: "Agent panes must be archived" });
+        } else {
+          threads.deletePane(paneId);
+          session.requestRefresh?.();
+          response.writeHead(204).end();
+        }
+      } catch (error) {
+        sendJson(response, 502, { error: error instanceof Error ? error.message : "Unable to delete pane" });
       }
       return;
     }
@@ -139,7 +192,10 @@ export function createControlServer(
     socket.on("error", () => terminal.dispose());
   });
 
-  server.on("close", () => session.close());
+  server.on("close", () => {
+    session.close();
+    threads.close();
+  });
 
   return server;
 }
@@ -204,8 +260,29 @@ function setCorsHeaders(request: IncomingMessage, response: ServerResponse, allo
   if (origin && isOriginAllowed(request, allowedOrigins)) {
     response.setHeader("Access-Control-Allow-Origin", origin);
     response.setHeader("Vary", "Origin");
-    response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    response.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
     response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  }
+}
+
+function threadActionFromPath(pathname: string): { threadId: string; action: "archive" | "restore" } | undefined {
+  const match = /^\/api\/threads\/([^/]+)\/(archive|restore)$/.exec(pathname);
+  if (!match) return undefined;
+  const threadId = decodeIdentifier(match[1]);
+  return threadId ? { threadId, action: match[2] as "archive" | "restore" } : undefined;
+}
+
+function paneIdFromPath(pathname: string): string | undefined {
+  const match = /^\/api\/panes\/([^/]+)$/.exec(pathname);
+  return match ? decodeIdentifier(match[1]) : undefined;
+}
+
+function decodeIdentifier(value: string): string | undefined {
+  try {
+    const decoded = decodeURIComponent(value);
+    return /^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,127}$/.test(decoded) ? decoded : undefined;
+  } catch {
+    return undefined;
   }
 }
 

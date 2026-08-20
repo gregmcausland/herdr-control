@@ -1,12 +1,16 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import type {
+  AgentSessionReference,
   SessionSnapshot,
   TerminalClientMessage,
   TerminalMode,
   TerminalServerMessage,
 } from "../shared/protocol.js";
-import { requestHerdr } from "./herdr-socket.js";
+import type { ThreadRestoreRequest } from "./threads.js";
+import { HerdrRequestError, requestHerdr } from "./herdr-socket.js";
+
+type HerdrSocketRequest = typeof requestHerdr;
 
 interface HerdrFrame {
   type: "terminal.frame";
@@ -37,7 +41,7 @@ export function translateHerdrRecord(record: HerdrRecord): TerminalServerMessage
   }
 
   const reason = record.reason ?? "Herdr closed the terminal session";
-  if (reason.includes("already has an attached client")) {
+  if (reason.includes("already has an attached client") || reason.includes("terminal attach taken over")) {
     return { type: "occupied", message: reason };
   }
   return { type: "closed", reason };
@@ -64,6 +68,15 @@ const LEGACY_KEYS: Record<string, string> = {
 
 export function logicalKeyFromLegacyInput(data: string): string | undefined {
   return LEGACY_KEYS[data];
+}
+
+export function resumeArgsFor(agent: string, session: AgentSessionReference): string[] {
+  if (agent === "codex" && session.kind === "id") return ["resume", session.value];
+  if (agent === "claude" && session.kind === "id") return ["--resume", session.value];
+  if (agent === "pi" && (session.kind === "id" || session.kind === "path")) {
+    return ["--session", session.value];
+  }
+  throw new Error(`${agent} sessions of kind ${session.kind} cannot be restored yet`);
 }
 
 export class HerdrTerminalConnection {
@@ -187,6 +200,7 @@ export class HerdrAdapter {
   constructor(
     private readonly binary = "herdr",
     private readonly socketPath = "",
+    private readonly socketRequest: HerdrSocketRequest = requestHerdr,
   ) {}
 
   async snapshot(): Promise<SessionSnapshot> {
@@ -220,7 +234,85 @@ export class HerdrAdapter {
   }
 
   async focusPane(target: string): Promise<void> {
-    await requestHerdr(this.socketPath, "pane.focus", { pane_id: target });
+    await this.socketRequest(this.socketPath, "pane.focus", { pane_id: target });
+  }
+
+  async closePane(target: string): Promise<void> {
+    await this.socketRequest(this.socketPath, "pane.close", { pane_id: target });
+  }
+
+  /** Retires a pane when safe, or reports that it remains a worktree anchor. */
+  async retirePane(target: string): Promise<"retired" | "retained"> {
+    try {
+      await this.closePane(target);
+      return "retired";
+    } catch (error) {
+      if (error instanceof HerdrRequestError && error.code === "confirmation_required") return "retained";
+      if (error instanceof HerdrRequestError && error.code === "pane_not_found") return "retired";
+      throw error;
+    }
+  }
+
+  async restoreThread(request: ThreadRestoreRequest): Promise<void> {
+    const resumeArgs = resumeArgsFor(request.agent, request.session);
+    const location = await this.createRestoreLocation(request);
+
+    try {
+      await this.run([
+        "agent",
+        "start",
+        request.agentName,
+        "--kind",
+        request.agent,
+        "--pane",
+        location.paneId,
+        "--timeout",
+        "60000",
+        "--",
+        ...resumeArgs,
+      ]);
+    } catch (error) {
+      await this.run([location.kind, "close", location.id]).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  private async createRestoreLocation(request: ThreadRestoreRequest): Promise<RestoreLocation> {
+    const cwdArgs = [
+      ...(request.cwd ? ["--cwd", request.cwd] : []),
+    ];
+
+    try {
+      const response = parseHerdrResponse(await this.run([
+        "tab",
+        "create",
+        "--workspace",
+        request.workspaceId,
+        ...cwdArgs,
+        "--label",
+        request.title,
+        "--no-focus",
+      ]));
+      const paneId = response.result?.root_pane?.pane_id;
+      const tabId = response.result?.tab?.tab_id;
+      if (!paneId || !tabId) throw new Error("Herdr returned an incomplete restored tab");
+      return { kind: "tab", id: tabId, paneId };
+    } catch {
+      const response = parseHerdrResponse(await this.run([
+        "workspace",
+        "create",
+        ...cwdArgs,
+        "--label",
+        request.workspaceLabel,
+        "--tab-label",
+        request.title,
+        "--no-focus",
+      ]));
+      const paneId = response.result?.root_pane?.pane_id;
+      const workspaceId = response.result?.workspace?.workspace_id;
+      if (!paneId || !workspaceId) throw new Error("Herdr returned an incomplete restored workspace");
+      return { kind: "workspace", id: workspaceId, paneId };
+    }
   }
 
   private run(args: string[]): Promise<string> {
@@ -237,4 +329,25 @@ export class HerdrAdapter {
       });
     });
   }
+}
+
+interface RestoreLocation {
+  kind: "tab" | "workspace";
+  id: string;
+  paneId: string;
+}
+
+interface HerdrCreationResponse {
+  result?: {
+    root_pane?: { pane_id?: string };
+    tab?: { tab_id?: string };
+    workspace?: { workspace_id?: string };
+  };
+  error?: { message?: string };
+}
+
+function parseHerdrResponse(output: string): HerdrCreationResponse {
+  const response = JSON.parse(output) as HerdrCreationResponse;
+  if (response.error) throw new Error(response.error.message ?? "Herdr command failed");
+  return response;
 }

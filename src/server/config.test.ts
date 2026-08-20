@@ -12,6 +12,7 @@ describe("bridge configuration", () => {
     expect(config.host).toBe("127.0.0.1");
     expect(config.port).toBe(4173);
     expect(config.herdrSocketPath).toMatch(/herdr\/herdr\.sock$/);
+    expect(config.statePath).toMatch(/herdr-control\/control\.db$/);
   });
 
   it("uses Herdr's supported socket override", () => {

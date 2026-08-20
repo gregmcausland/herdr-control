@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PaneInfo, WorkspaceInfo } from "../shared/protocol";
-import { groupPanesByActivity } from "./activity-order";
+import { groupPanesByWorkspace } from "./workspace-groups";
 
 function workspace(workspaceId: string): WorkspaceInfo {
   return {
@@ -24,43 +24,31 @@ function pane(paneId: string, workspaceId: string, agentStatus?: string): PaneIn
   };
 }
 
-describe("activity ordering", () => {
-  it("raises workspaces and panes by their most important agent state", () => {
-    const groups = groupPanesByActivity(
-      [workspace("idle"), workspace("working"), workspace("blocked"), workspace("done")],
+describe("workspace grouping", () => {
+  it("preserves project and pane order regardless of agent state", () => {
+    const groups = groupPanesByWorkspace(
+      [workspace("idle"), workspace("working"), workspace("blocked")],
       [
         pane("idle-pane", "idle", "idle"),
         pane("working-idle", "working", "idle"),
         pane("working-active", "working", "working"),
         pane("blocked-working", "blocked", "working"),
         pane("blocked-attention", "blocked", "blocked"),
-        pane("done-pane", "done", "done"),
       ],
     );
 
     expect(groups.map(({ workspace: item }) => item.workspace_id)).toEqual([
-      "blocked",
-      "working",
-      "done",
       "idle",
-    ]);
-    expect(groups[0].panes.map((item) => item.pane_id)).toEqual([
-      "blocked-attention",
-      "blocked-working",
+      "working",
+      "blocked",
     ]);
     expect(groups[1].panes.map((item) => item.pane_id)).toEqual([
-      "working-active",
       "working-idle",
+      "working-active",
     ]);
-  });
-
-  it("preserves source order for equally ranked items", () => {
-    const groups = groupPanesByActivity(
-      [workspace("first"), workspace("second")],
-      [pane("first-a", "first"), pane("first-b", "first", "idle"), pane("second-a", "second")],
-    );
-
-    expect(groups.map(({ workspace: item }) => item.workspace_id)).toEqual(["first", "second"]);
-    expect(groups[0].panes.map((item) => item.pane_id)).toEqual(["first-a", "first-b"]);
+    expect(groups[2].panes.map((item) => item.pane_id)).toEqual([
+      "blocked-working",
+      "blocked-attention",
+    ]);
   });
 });

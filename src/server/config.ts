@@ -7,6 +7,7 @@ export interface ServerConfig {
   port: number;
   herdrBinary: string;
   herdrSocketPath: string;
+  statePath: string;
   allowedOrigins: Set<string>;
 }
 
@@ -23,6 +24,8 @@ export function loadConfig(environment = process.env): ServerConfig {
     herdrSocketPath: environment.HERDR_CONTROL_SOCKET
       ?? environment.HERDR_SOCKET_PATH
       ?? join(environment.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "herdr", "herdr.sock"),
+    statePath: environment.HERDR_CONTROL_STATE
+      ?? join(environment.XDG_STATE_HOME ?? join(homedir(), ".local", "state"), "herdr-control", "control.db"),
     allowedOrigins: new Set(
       (environment.HERDR_CONTROL_ALLOWED_ORIGINS ?? "http://localhost:5173,http://127.0.0.1:5173")
         .split(",")

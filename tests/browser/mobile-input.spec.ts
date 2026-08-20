@@ -1,4 +1,4 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { expect, test, type BrowserContext, type Page, type WebSocketRoute } from "@playwright/test";
 
 const clientUrl = process.env.HERDR_CONTROL_TEST_CLIENT;
 
@@ -16,7 +16,27 @@ const snapshot = {
     cwd: "/tmp",
     agent: "codex",
     agent_status: "done",
+    thread_id: "thread-test",
+    run_id: "run-test",
     focused: true,
+  }],
+  threads: [{
+    thread_id: "thread-test",
+    title: "Test pane",
+    agent: "codex",
+    lifecycle: "open",
+    created_at: "2026-08-19T12:00:00.000Z",
+    updated_at: "2026-08-19T12:00:00.000Z",
+    current_run: {
+      run_id: "run-test",
+      workspace_id: "w1",
+      workspace_label: "Test",
+      tab_id: "w1:t1",
+      pane_id: "w1:p1",
+      terminal_id: "term_test",
+      agent_status: "done",
+      started_at: "2026-08-19T12:00:00.000Z",
+    },
   }],
 };
 
@@ -24,6 +44,7 @@ async function mockTerminal(
   page: Page,
   sent: Array<{ type: string; data?: string; key?: string }>,
   opened: string[] = [],
+  connections: WebSocketRoute[] = [],
 ) {
   await page.route("**/api/session/events", (route) => route.fulfill({
     contentType: "text/event-stream",
@@ -31,6 +52,7 @@ async function mockTerminal(
   }));
   await page.routeWebSocket(/\/api\/terminal/, (socket) => {
     opened.push(socket.url());
+    connections.push(socket);
     socket.onMessage((message) => sent.push(JSON.parse(message.toString())));
     socket.send(JSON.stringify({ type: "ready", mode: "control" }));
   });
@@ -45,10 +67,75 @@ async function openTerminal(
   await mockTerminal(page, sent, opened);
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
   await page.getByRole("button", { name: "Open Test pane" }).click();
+  await expect.poll(() => decodeURIComponent(new URL(page.url()).pathname)).toBe("/threads/thread-test");
   await expect(page.locator(".terminal-header small")).toHaveText("Control");
   await expect.poll(() => sent.some((message) => message.type === "view")).toBe(true);
   return page;
 }
+
+async function setPageVisibility(page: Page, visibility: DocumentVisibilityState) {
+  await page.evaluate((nextVisibility) => {
+    const testWindow = window as typeof window & { testVisibility?: DocumentVisibilityState };
+    testWindow.testVisibility = nextVisibility;
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => testWindow.testVisibility,
+    });
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      get: () => testWindow.testVisibility === "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, visibility);
+}
+
+test("restores a routed terminal after refresh and follows browser history", async ({ page }) => {
+  test.skip(!clientUrl, "A running browser client is required");
+  await mockTerminal(page, []);
+  await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
+  await page.getByRole("button", { name: "Open Test pane" }).click();
+
+  await page.reload();
+  await expect(page.locator(".terminal-heading strong")).toHaveText("Test pane");
+  await page.goBack();
+  await expect(page.getByRole("button", { name: "Open Test pane" })).toBeVisible();
+});
+
+test("reclaims uncontested control when returning to a backgrounded terminal", async ({ page }) => {
+  test.skip(!clientUrl, "A running browser client is required");
+  const sent: Array<{ type: string }> = [];
+  const opened: string[] = [];
+  await mockTerminal(page, sent, opened);
+  await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
+  await page.getByRole("button", { name: "Open Test pane" }).click();
+  await expect.poll(() => opened.length).toBe(1);
+
+  await setPageVisibility(page, "hidden");
+  await expect.poll(() => sent.some((message) => message.type === "release")).toBe(true);
+  await setPageVisibility(page, "visible");
+
+  await expect.poll(() => opened.length).toBe(2);
+  expect(new URL(opened[1]).searchParams.get("takeover")).toBe("false");
+  await expect(page.locator(".terminal-header small")).toHaveText("Control");
+  await expect(page.locator(".terminal-overlay")).toHaveCount(0);
+});
+
+test("reclaims uncontested control after the terminal bridge disconnects", async ({ page }) => {
+  test.skip(!clientUrl, "A running browser client is required");
+  const opened: string[] = [];
+  const connections: WebSocketRoute[] = [];
+  await mockTerminal(page, [], opened, connections);
+  await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
+  await page.getByRole("button", { name: "Open Test pane" }).click();
+  await expect.poll(() => connections.length).toBe(1);
+
+  await connections[0].close({ code: 1012, reason: "Bridge restarted" });
+
+  await expect.poll(() => connections.length).toBe(2);
+  expect(new URL(opened[1]).searchParams.get("takeover")).toBe("false");
+  await expect(page.locator(".terminal-header small")).toHaveText("Control");
+  await expect(page.locator(".terminal-overlay")).toHaveCount(0);
+});
 
 test("offers local message composition and terminal keys only on mobile", async ({ browser }) => {
   test.skip(!clientUrl, "A running browser client is required");

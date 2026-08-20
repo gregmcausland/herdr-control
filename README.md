@@ -20,18 +20,29 @@ Working today:
 
 - Discover Herdr workspaces, tabs, and panes.
 - Keep workspace and agent state live through Herdr's socket event stream.
-- Present a workspace-grouped pane overview that prioritises blocked, working,
-  and newly completed work while keeping idle panes stable.
+- Adopt recognized agent panes into durable Threads and record each transient
+  execution as a Run across bridge restarts.
+- Archive agent Threads in Control; retire their live pane when Herdr says it
+  is safe, or preserve the protected worktree runtime while following archived
+  visuals. Restore supported inactive sessions into a fresh Run when a provider
+  reference is available.
+- Remove transient shell panes from Control immediately and retire their Herdr
+  resources when safe, without turning them into durable Threads.
+- Present a stable, workspace-grouped pane overview without moving panes as
+  their activity changes.
 - Switch the app and terminal together between Dracula, Catppuccin Mocha,
   Tokyo Night, Gruvbox Dark, Nord, Catppuccin Latte, Solarized Light, and
   Gruvbox Light palettes.
 - Render and control live shells and full-screen coding-agent interfaces.
+- Link to and refresh individual terminal views without losing the selected pane.
 - Resize, scroll, type, paste text, and send terminal keys through Herdr's
   keyboard-aware input path, including modified keys such as Shift+Enter.
 - Use a phone-friendly message composer and clipboard-image upload.
 - Observe a busy pane or explicitly take control from another client.
 - Mark completed work as viewed when its terminal is open and visible.
-- Disconnect and reconnect without stopping the underlying process.
+- Release control while backgrounded and reclaim it automatically when the
+  browser returns or the bridge reconnects, prompting only when another client
+  now owns the terminal.
 
 The interface now has a focused orchestration foundation: workspaces organise
 the panes, agent state drives their presentation, and active work has a live
@@ -68,7 +79,7 @@ reconnects and resynchronises.
 
 Requirements:
 
-- Node.js 22 or newer
+- Node.js 22.5 or newer
 - Herdr 0.8 or newer with terminal session control support
 
 Install dependencies and start the development bridge and client:
@@ -116,7 +127,31 @@ or untrusted network.
 | `HERDR_CONTROL_PORT` | `4173` | Bridge port |
 | `HERDR_CONTROL_BIN` | `herdr` | Herdr executable |
 | `HERDR_CONTROL_SOCKET` | Herdr's default socket | Explicit Herdr socket path |
+| `HERDR_CONTROL_STATE` | `~/.local/state/herdr-control/control.db` | Durable Thread and Run database |
 | `HERDR_CONTROL_ALLOWED_ORIGINS` | Local Vite origins | Comma-separated origins for separately hosted clients |
+
+Recognized agent panes are adopted automatically. Herdr Control stores their
+lifecycle metadata and stable identity, not terminal output or reconstructed
+conversation transcripts. Restore is offered only when Herdr reports a provider
+session reference that Herdr Control knows how to resume. Plain shell panes
+remain transient and can be deleted, but are never archived.
+
+Archiving and plain-pane deletion take effect in Control immediately. Retiring
+the associated Herdr pane is asynchronous: a pane protected by Herdr's worktree
+guard remains hidden and is retried after terminal topology changes.
+
+Project persistence is the next lifecycle layer: a durable Project will own its
+Threads and checkout identity while Herdr workspaces, tabs, and panes remain
+replaceable runtime resources.
+
+For resumable Codex, Claude, and Pi Threads, install Herdr's provider
+integrations once on the machine running the agents:
+
+```bash
+herdr integration install codex
+herdr integration install claude
+herdr integration install pi
+```
 
 ## Verification
 

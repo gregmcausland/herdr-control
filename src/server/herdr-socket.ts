@@ -6,6 +6,15 @@ const REQUEST_TIMEOUT_MS = 5_000;
 const MAX_LINE_BYTES = 16 * 1024 * 1024;
 let requestSequence = 0;
 
+export class HerdrRequestError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 const LIFECYCLE_SUBSCRIPTIONS = [
   "workspace.created",
   "workspace.updated",
@@ -315,8 +324,13 @@ function requestLine(socketPath: string, request: object): Promise<Record<string
       if (newline < 0) return;
       try {
         const value = JSON.parse(buffer.slice(0, newline)) as Record<string, unknown>;
-        if (record(value.error)) finish(new Error(messageFromResponse(value, "Herdr request failed")));
-        else finish(undefined, value);
+        const responseError = record<Record<string, unknown>>(value.error);
+        if (responseError) {
+          finish(new HerdrRequestError(
+            string(responseError.code) ?? "herdr_request_failed",
+            string(responseError.message) ?? "Herdr request failed",
+          ));
+        } else finish(undefined, value);
       } catch {
         finish(new Error("Herdr returned invalid JSON"));
       }

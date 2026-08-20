@@ -90,29 +90,36 @@ export function MobileTerminalControls({ active, paneLabel, onFocusTerminal, onK
         <div className="message-backdrop" onPointerDown={(event) => {
           if (event.target === event.currentTarget) setComposerOpen(false);
         }}>
-          <section className="message-composer" role="dialog" aria-modal="true" aria-labelledby="message-title">
+          <section className="message-composer message-sheet" role="dialog" aria-modal="true" aria-labelledby="message-title">
+            <span className="message-sheet-handle" aria-hidden="true" />
             <header>
               <div>
                 <h2 id="message-title">Send message</h2>
-                <small>{active ? `Connected to ${paneLabel}` : "Terminal control unavailable"}</small>
+                <small className="message-destination">
+                  <span className={`message-connection-dot ${active ? "connected" : ""}`} aria-hidden="true" />
+                  {active ? `Connected to ${paneLabel}` : "Terminal control unavailable"}
+                </small>
               </div>
               <button className="secondary icon-button" onClick={() => setComposerOpen(false)} aria-label="Close message composer">×</button>
             </header>
-            <textarea
-              ref={textareaRef}
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                  event.preventDefault();
-                  send();
-                }
-              }}
-              placeholder="Prepare a message locally…"
-              rows={7}
-            />
+            <label className="message-field">
+              <span className="message-field-label">Message</span>
+              <textarea
+                ref={textareaRef}
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                    event.preventDefault();
+                    send();
+                  }
+                }}
+                placeholder="Prepare a message locally…"
+                rows={7}
+              />
+            </label>
             <footer>
-              <small>Ctrl/⌘ + Enter to send</small>
+              <small><kbd>Ctrl</kbd><span>/</span><kbd>⌘</kbd><span>+</span><kbd>Enter</kbd></small>
               <button onClick={send} disabled={!active || draft.trim().length === 0}>Send</button>
             </footer>
           </section>
