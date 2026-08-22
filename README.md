@@ -56,7 +56,9 @@ workspace, tab, and pane layout changes.
   autonomy. Use it only in projects and environments you trust.
 
 See [prototype validation](docs/prototype-validation.md) for the behaviours
-examined so far and known compatibility gaps.
+examined so far and known compatibility gaps. Before upgrading Herdr, an agent
+harness, Node.js, xterm.js, or the deployment environment, check the
+[external seam maintenance guide](docs/maintenance.md).
 
 ## How it works
 
