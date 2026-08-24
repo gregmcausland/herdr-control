@@ -26,11 +26,14 @@ export function groupPanesByProject(
     target.set(key, groupedPanes);
   }
 
-  return [
-    ...projects.flatMap((project) => {
-      const projectPanes = panesByProject.get(project.project_id);
-      return [{ id: project.project_id, label: project.name, project, panes: projectPanes ?? [] }];
-    }),
+  const projectGroups: ProjectPaneGroup[] = projects.map((project) => ({
+    id: project.project_id,
+    label: project.name,
+    project,
+    panes: panesByProject.get(project.project_id) ?? [],
+  }));
+  const groups = [
+    ...projectGroups,
     ...workspaces.flatMap((workspace) => {
       const workspacePanes = unclassifiedByWorkspace.get(workspace.workspace_id);
       return workspacePanes?.length
@@ -38,4 +41,42 @@ export function groupPanesByProject(
         : [];
     }),
   ];
+  return groups.sort(compareProjectRecency);
+}
+
+function compareProjectRecency(first: ProjectPaneGroup, second: ProjectPaneGroup): number {
+  const firstCurrentRun = latestCurrentRunAt(first.panes);
+  const secondCurrentRun = latestCurrentRunAt(second.panes);
+  if (firstCurrentRun !== undefined && secondCurrentRun === undefined) return -1;
+  if (firstCurrentRun === undefined && secondCurrentRun !== undefined) return 1;
+  if (firstCurrentRun && secondCurrentRun) {
+    const recency = secondCurrentRun.localeCompare(firstCurrentRun);
+    if (recency !== 0) return recency;
+  }
+
+  const firstRun = first.project?.last_run_at;
+  const secondRun = second.project?.last_run_at;
+  if (firstRun && secondRun) {
+    const recency = secondRun.localeCompare(firstRun);
+    if (recency !== 0) return recency;
+  } else if (firstRun) {
+    return -1;
+  } else if (secondRun) {
+    return 1;
+  }
+
+  if (first.project && !second.project) return -1;
+  if (!first.project && second.project) return 1;
+  return first.label.localeCompare(second.label, undefined, { sensitivity: "base" })
+    || first.id.localeCompare(second.id);
+}
+
+function latestCurrentRunAt(panes: PaneInfo[]): string | undefined {
+  const currentRuns = panes.filter((pane) => pane.run_id);
+  if (currentRuns.length === 0) return undefined;
+  return currentRuns.reduce<string | undefined>((latest, pane) => (
+    pane.run_started_at && (!latest || pane.run_started_at > latest)
+      ? pane.run_started_at
+      : latest
+  ), undefined) ?? "";
 }

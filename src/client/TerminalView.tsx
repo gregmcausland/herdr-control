@@ -1,4 +1,5 @@
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PaneInfo, TerminalMode, TerminalServerMessage } from "../shared/protocol";
@@ -6,6 +7,7 @@ import { MobileTerminalControls } from "./MobileTerminalControls";
 import { WorkingActivity } from "./WorkingActivity";
 import { createTerminalColorAdapter, type TerminalColorAdapter } from "./terminal-color-adapter";
 import { attachTerminalInput, type TerminalInputController } from "./terminal-input";
+import { createTerminalLinkInteractions } from "./terminal-links";
 import { attachTerminalViewport } from "./terminal-viewport";
 import { terminalMinimumContrastRatio, terminalThemeFor, type ThemeId } from "./theme";
 
@@ -136,17 +138,29 @@ export function TerminalView({ bridgeUrl, pane, themeId, fontFamily, fontSize, c
   openRef.current = open;
 
   useEffect(() => {
-    const terminal = new Terminal({
+    let terminal!: Terminal;
+    const links = createTerminalLinkInteractions(() => terminal.element ?? undefined);
+    terminal = new Terminal({
       cursorBlink,
       convertEol: false,
       fontFamily,
       fontSize,
+      linkHandler: {
+        activate: links.activate,
+        hover: links.hover,
+        leave: links.leave,
+        allowNonHttpProtocols: false,
+      },
       minimumContrastRatio: terminalMinimumContrastRatio(themeId),
       theme: terminalThemeFor(themeId),
     });
     colorAdapterRef.current = createTerminalColorAdapter(themeId);
     const fit = new FitAddon();
     terminal.loadAddon(fit);
+    terminal.loadAddon(new WebLinksAddon(links.activate, {
+      hover: links.hover,
+      leave: links.leave,
+    }));
     terminal.open(containerRef.current!);
     terminalRef.current = terminal;
     const detachViewport = attachTerminalViewport(screenRef.current!);

@@ -28,8 +28,8 @@ still change.
   completed working period.
 - Open and control shells and full-screen agent interfaces without interrupting
   their underlying processes.
-- Type, paste text or clipboard images, send modified keys, resize, and scroll
-  from desktop or phone layouts.
+- Type, paste text or clipboard images, send modified keys, resize, scroll, and
+  open HTTP or HTTPS links from desktop or phone layouts.
 - Observe a terminal controlled by another browser, explicitly take control,
   and recover control after reconnecting.
 - Archive agent threads and restore supported conversations when Herdr has
@@ -101,8 +101,8 @@ npm start
 
 Open `http://127.0.0.1:4173`.
 
-The bridge address can also be entered in the Connection panel and is remembered
-by the browser.
+Use the host picker in the header to move between configured Herdr machines. The
+last selection is remembered by the browser.
 
 ## Remote access
 
@@ -132,6 +132,10 @@ reference. A thread leaves the active view immediately when archived, even if
 Herdr must wait for its worktree before safely retiring the pane.
 
 ## Configuration
+
+Browser hosts are defined in `src/client/hosts.json` and bundled into the client
+at build time. Each host's bridge must allow the other configured Control origins
+when cross-host switching is required.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |

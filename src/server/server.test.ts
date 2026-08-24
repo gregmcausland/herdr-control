@@ -29,11 +29,14 @@ describe("terminal ownership", () => {
       focusPane: async () => undefined,
       snapshot: async () => snapshot,
     } as unknown as HerdrAdapter;
+    const requestRefresh = vi.fn();
     const session: SessionStateFeed = {
       current: () => ({ status: "live", revision: 1, snapshot }),
       subscribe: () => () => undefined,
+      requestRefresh,
       close: () => undefined,
     };
+    const threads = new ThreadManager({ path: ":memory:" });
     const server = createControlServer({
       host: "127.0.0.1",
       port: 0,
@@ -41,7 +44,7 @@ describe("terminal ownership", () => {
       herdrSocketPath: "/tmp/herdr-test.sock",
       statePath: ":memory:",
       allowedOrigins: new Set(),
-    }, herdr, session, new ThreadManager({ path: ":memory:" }));
+    }, herdr, session, threads);
 
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const port = (server.address() as AddressInfo).port;

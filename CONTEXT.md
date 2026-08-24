@@ -24,6 +24,10 @@ _Avoid_: Runtime database, cached truth, Herdr mirror
 A durable working context for one repository, its Threads, and any related Worktrees. A Project exists whether or not it currently has a Project Runtime or any Worktrees.
 _Avoid_: Workspace, repository, pane group
 
+**Project recency**:
+The start time of a Project's latest Run. In active orchestration views, groups with a current Run rank ahead of groups without one, then groups rank by recency.
+_Avoid_: Browser interaction, Project update, workspace focus
+
 **Project Runtime**:
 The replaceable set of Herdr workspaces currently hosting a Project's Worktree Runtimes. A Project may span workspaces, and one workspace may host multiple Worktrees; neither layout is the Project's identity.
 _Avoid_: Project, persistent workspace

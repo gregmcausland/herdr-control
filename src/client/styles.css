@@ -61,31 +61,25 @@ button:disabled { cursor: default; opacity: .5; }
 }
 .icon-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
 
-.connection {
-  margin: -8px 0 24px;
-  padding: 14px;
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  background: var(--color-surface);
-}
-.connection label { display: block; margin-bottom: 8px; color: var(--color-text-soft); font-size: 13px; }
-.connection-row { display: flex; gap: 8px; }
-.connection-row input {
+.host-picker {
   min-width: 0;
-  flex: 1;
+  max-width: 132px;
   border: 1px solid var(--color-border-strong);
-  border-radius: 8px;
+  border-radius: 999px;
+  outline: none;
   background: var(--color-surface-raised);
   color: var(--color-text);
-  padding: 11px 12px;
+  padding: 7px 28px 7px 11px;
+  font-size: 12px;
+  font-weight: 600;
 }
+.host-picker:focus-visible { outline: 2px solid var(--color-info); outline-offset: 2px; }
 .notice { padding: 12px; border-radius: 8px; background: var(--color-surface-notice); }
 .notice.error { background: var(--color-surface-danger); color: var(--color-danger-text); }
 .connection-status { display: inline-flex; align-items: center; gap: 7px; color: var(--color-text-muted); font-size: 13px; }
 .connection-status::before { width: 8px; height: 8px; border-radius: 50%; background: var(--color-idle); content: ""; }
 .connection-status.live::before { background: var(--color-success); }
 .connection-status.stale::before { background: var(--color-danger); }
-.connection-trigger { padding: 6px 11px; font-size: 12px; }
 .herdr-version { color: var(--color-text-muted); font-size: 12px; white-space: nowrap; }
 .settings-trigger { width: 32px; height: 32px; color: var(--color-text-muted); }
 
@@ -713,7 +707,7 @@ button:disabled { cursor: default; opacity: .5; }
   .masthead-actions { gap: 6px; }
   .herdr-version { font-size: 11px; }
   .herdr-version-prefix { display: none; }
-  .connection-row { align-items: stretch; flex-direction: column; }
+  .host-picker { max-width: 104px; }
   .terminal-header {
     min-height: 50px;
     padding-inline: max(8px, env(safe-area-inset-left)) max(8px, env(safe-area-inset-right));

@@ -60,6 +60,7 @@ interface ProjectRow {
   repo_key: string;
   name: string;
   repo_root: string;
+  last_run_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -159,6 +160,7 @@ export class ThreadManager {
     const assignments = new Map<string, {
       threadId: string;
       runId: string;
+      runStartedAt: string;
       projectId?: string;
       worktreeId?: string;
       workingStartedAt?: string;
@@ -324,12 +326,18 @@ export class ThreadManager {
 
   listProjects(): ProjectInfo[] {
     return (this.database.prepare(`
-      SELECT * FROM projects ORDER BY name COLLATE NOCASE, repo_key
+      SELECT projects.*, MAX(runs.started_at) AS last_run_at
+      FROM projects
+      LEFT JOIN threads ON threads.project_id = projects.project_id
+      LEFT JOIN runs ON runs.thread_id = threads.thread_id
+      GROUP BY projects.project_id
+      ORDER BY projects.name COLLATE NOCASE, projects.repo_key
     `).all() as unknown as ProjectRow[]).map((row) => ({
       project_id: row.project_id,
       name: row.name,
       repo_key: row.repo_key,
       repo_root: row.repo_root,
+      last_run_at: row.last_run_at ?? undefined,
       created_at: row.created_at,
       updated_at: row.updated_at,
     }));
@@ -1303,6 +1311,7 @@ function assignmentFor(
 ): {
   threadId: string;
   runId: string;
+  runStartedAt: string;
   projectId?: string;
   worktreeId?: string;
   workingStartedAt?: string;
@@ -1311,6 +1320,7 @@ function assignmentFor(
   return {
     threadId: run.thread_id,
     runId: run.run_id,
+    runStartedAt: run.started_at,
     projectId: placement?.projectId,
     worktreeId: placement?.worktreeId,
     workingStartedAt: run.agent_status === "working" ? run.status_changed_at ?? undefined : undefined,
@@ -1330,6 +1340,7 @@ function paneProjectionFields(
   assignment: {
     threadId: string;
     runId: string;
+    runStartedAt: string;
     projectId?: string;
     worktreeId?: string;
     workingStartedAt?: string;
@@ -1339,6 +1350,7 @@ function paneProjectionFields(
 ): {
   thread_id?: string;
   run_id?: string;
+  run_started_at?: string;
   project_id?: string;
   worktree_id?: string;
   working_started_at?: string;
@@ -1348,6 +1360,7 @@ function paneProjectionFields(
     ? {
         thread_id: assignment.threadId,
         run_id: assignment.runId,
+        run_started_at: assignment.runStartedAt,
         project_id: assignment.projectId,
         worktree_id: assignment.worktreeId,
         working_started_at: assignment.workingStartedAt,

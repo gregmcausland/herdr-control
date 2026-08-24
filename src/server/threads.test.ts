@@ -117,6 +117,7 @@ describe("ThreadManager", () => {
     expect(reconciled.panes[0]).toMatchObject({
       project_id: reconciled.projects?.[0].project_id,
       worktree_id: reconciled.worktrees?.[0].worktree_id,
+      run_started_at: "2026-08-20T12:00:00.000Z",
     });
     expect(reconciled.agents?.[0]).toMatchObject({
       project_id: reconciled.projects?.[0].project_id,
@@ -126,6 +127,27 @@ describe("ThreadManager", () => {
     expect(reconciled.threads?.[0].worktree_id).toBe(reconciled.worktrees?.[0].worktree_id);
     expect(reconciled.threads?.[0].project_id).toBe(reconciled.projects?.[0].project_id);
     threads.close();
+  });
+
+  it("projects the latest durable Run time after a restart", () => {
+    const directory = mkdtempSync(join(tmpdir(), "herdr-control-project-recency-"));
+    const path = join(directory, "control.db");
+    const startedAt = "2026-08-20T12:00:00.000Z";
+    try {
+      const threads = new ThreadManager({ path, createId: ids(), now: () => startedAt });
+      const observed = snapshot();
+      observed.repositories = [repository()];
+      threads.reconcile(observed);
+
+      expect(threads.listProjects()[0].last_run_at).toBe(startedAt);
+      threads.close();
+
+      const reopened = new ThreadManager({ path });
+      expect(reopened.listProjects()[0].last_run_at).toBe(startedAt);
+      reopened.close();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("keeps durable Projects and Worktrees after their Herdr runtime closes", () => {

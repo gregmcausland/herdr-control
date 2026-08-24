@@ -204,8 +204,10 @@ checks.
 
 ## Browser and xterm contract
 
-Production terminal code uses xterm's public `Terminal`, `FitAddon`, theme,
-contrast, data, resize, paste, selection, and custom-key interfaces. Tests also
+Production terminal code uses xterm's public `Terminal`, `FitAddon`,
+`WebLinksAddon`, theme, contrast, data, resize, paste, selection, and custom-key
+interfaces. Plain-text and OSC 8 links accept only HTTP or HTTPS destinations
+and open with `noopener,noreferrer`. Tests also
 locate xterm's hidden input element by `.xterm-helper-textarea`; an upstream DOM
 rename may break tests even when production input still works.
 

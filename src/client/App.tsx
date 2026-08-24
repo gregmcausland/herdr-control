@@ -4,6 +4,7 @@ import { TerminalView } from "./TerminalView";
 import { PlusIcon, ThreadCreationDialog } from "./ThreadCreationDialog";
 import { SettingsDialog, SettingsIcon } from "./SettingsDialog";
 import { applyFontSettings, readAppSettings, storeAppSettings } from "./settings";
+import { hostOptions, normalizeHost, resolveInitialHost } from "./hosts";
 import { useLiveSession } from "./live-session";
 import { applyAppTheme } from "./theme";
 import { WorkingActivity } from "./WorkingActivity";
@@ -16,14 +17,11 @@ const STORAGE_KEY = "herdr-control-host";
 type PaneAction = { kind: "archive" | "delete"; pane: PaneInfo; thread?: ThreadInfo };
 
 function initialHost(): string {
-  const query = new URLSearchParams(window.location.search).get("host");
-  return query ?? localStorage.getItem(STORAGE_KEY) ?? window.location.origin;
-}
-
-function normalizeHost(value: string): string {
-  const trimmed = value.trim().replace(/\/$/, "");
-  if (/^https?:\/\//.test(trimmed)) return trimmed;
-  return `https://${trimmed}`;
+  return resolveInitialHost(
+    window.location.search,
+    localStorage.getItem(STORAGE_KEY),
+    window.location.origin,
+  );
 }
 
 function paneTitle(pane: PaneInfo): string {
@@ -131,9 +129,7 @@ function WorktreeIcon() {
 }
 
 export function App() {
-  const [hostInput, setHostInput] = useState(initialHost);
-  const [bridgeUrl, setBridgeUrl] = useState(() => normalizeHost(initialHost()));
-  const [connectionOpen, setConnectionOpen] = useState(false);
+  const [bridgeUrl, setBridgeUrl] = useState(initialHost);
   const [terminalRoute, setTerminalRoute] = useState<TerminalRoute | undefined>(
     () => terminalRouteFromPath(window.location.pathname),
   );
@@ -198,11 +194,13 @@ export function App() {
     setTerminalRoute(undefined);
   }, [activePane, snapshot, terminalRoute]);
 
-  function connect() {
-    const nextBridgeUrl = normalizeHost(hostInput);
+  function selectHost(value: string) {
+    const nextBridgeUrl = normalizeHost(value);
     localStorage.setItem(STORAGE_KEY, nextBridgeUrl);
+    const location = new URL(window.location.href);
+    location.searchParams.set("host", nextBridgeUrl);
+    window.history.replaceState(null, "", `${location.pathname}${location.search}${location.hash}`);
     setBridgeUrl(nextBridgeUrl);
-    setConnectionOpen(false);
   }
 
   function openPane(pane: PaneInfo) {
@@ -303,6 +301,16 @@ export function App() {
           {snapshot && (
             <span className="herdr-version"><span className="herdr-version-prefix">Herdr </span>{snapshot.version}</span>
           )}
+          <select
+            className="host-picker"
+            aria-label="Herdr host"
+            value={bridgeUrl}
+            onChange={(event) => selectHost(event.target.value)}
+          >
+            {hostOptions(bridgeUrl).map((host) => (
+              <option key={host.url} value={host.url}>{host.label}</option>
+            ))}
+          </select>
           <span className={`connection-status ${liveSession.status}`}>
             {liveSession.status === "live" ? "Live" : liveSession.status === "stale" ? "Reconnecting" : "Connecting"}
           </span>
@@ -315,38 +323,8 @@ export function App() {
           >
             <SettingsIcon />
           </button>
-          <button
-            className="secondary connection-trigger"
-            type="button"
-            aria-expanded={connectionOpen}
-            onClick={() => setConnectionOpen((open) => !open)}
-          >
-            Connection
-          </button>
         </div>
       </header>
-
-      {connectionOpen && (
-        <form
-          className="connection"
-          onSubmit={(event) => {
-            event.preventDefault();
-            connect();
-          }}
-        >
-          <label htmlFor="bridge-host">Herdr bridge</label>
-          <div className="connection-row">
-            <input
-              id="bridge-host"
-              value={hostInput}
-              onChange={(event) => setHostInput(event.target.value)}
-              placeholder="https://servermz.example.ts.net"
-              inputMode="url"
-            />
-            <button type="submit">Connect</button>
-          </div>
-        </form>
-      )}
 
       {liveSession.status === "connecting" && <p className="notice">Connecting to {bridgeUrl}…</p>}
       {liveSession.status === "stale" && (

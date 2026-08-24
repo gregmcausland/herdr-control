@@ -72,6 +72,7 @@ export interface PaneInfo {
   state_labels?: Record<string, string>;
   thread_id?: string;
   run_id?: string;
+  run_started_at?: string;
   project_id?: string;
   worktree_id?: string;
   working_started_at?: string;
@@ -144,6 +145,7 @@ export interface ProjectInfo {
   name: string;
   repo_key: string;
   repo_root: string;
+  last_run_at?: string;
   created_at: string;
   updated_at: string;
 }
