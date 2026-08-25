@@ -18,9 +18,11 @@ supports Node.js 22.5 or newer; JavaScript dependency versions remain pinned by
 1. Herdr snapshots remain authoritative for workspaces, tabs, panes, agents,
    terminal ownership, status, and open Worktrees. Never repair runtime drift by
    inventing those facts in Control's database.
-2. Keep upstream knowledge inside the existing adapters. Herdr protocol changes
-   belong in `src/server/herdr-socket.ts` or `src/server/herdr.ts`; agent terminal
-   colour compatibility belongs in `src/client/terminal-color-adapter.ts`.
+2. Keep upstream knowledge inside the existing adapters. Herdr response shapes
+   and translation belong in `src/server/herdr-protocol.ts`; socket and CLI
+   transport belong in `src/server/herdr-socket.ts` and `src/server/herdr.ts`.
+   Agent terminal colour compatibility belongs in
+   `src/client/terminal-color-adapter.ts`.
 3. An event is an invalidation signal, not state. After any relevant event,
    Control reads a complete snapshot and reconciles that snapshot.
 4. Add or update a contract test whenever an upstream response, error code,
@@ -31,9 +33,9 @@ supports Node.js 22.5 or newer; JavaScript dependency versions remain pinned by
 
 | External seam | What Control relies on | Main adapter | Primary verification |
 | --- | --- | --- | --- |
-| Herdr local socket | Snapshot, worktree inventory, lifecycle events, pane and agent actions | `src/server/herdr-socket.ts`, `src/server/herdr.ts` | `src/server/herdr-socket.test.ts`, `src/server/herdr.test.ts` |
-| Herdr terminal command | NDJSON terminal frames and input, ownership, observe/control/takeover | `src/server/herdr.ts` | `tests/browser/prototype.spec.ts`, `controller.spec.ts`, `scroll.spec.ts` |
-| Agent harnesses and Herdr integrations | Agent detection, status, session references, resume and permission flags | `src/server/herdr.ts`, `src/server/threads.ts` | `src/server/herdr.test.ts`, `threads.test.ts`, `tests/browser/agent-compat.spec.ts` |
+| Herdr local socket | Snapshot, worktree inventory, lifecycle events, pane and agent actions | `src/server/herdr-socket.ts`, `src/server/herdr.ts`, `src/server/herdr-protocol.ts` | `src/server/herdr-protocol.test.ts`, `src/server/herdr.test.ts` |
+| Herdr terminal command | NDJSON terminal frames and input, ownership, observe/control/takeover | `src/server/herdr.ts`, `src/server/herdr-protocol.ts` | `src/server/herdr-protocol.test.ts`, `tests/browser/prototype.spec.ts`, `controller.spec.ts`, `scroll.spec.ts` |
+| Agent harnesses and Herdr integrations | Agent detection, status, session references, resume and permission flags | `src/server/herdr.ts`, `src/server/herdr-protocol.ts`, `src/server/threads.ts` | `src/server/herdr-protocol.test.ts`, `src/server/herdr.test.ts`, `threads.test.ts`, `tests/browser/agent-compat.spec.ts` |
 | Agent ANSI output | SGR parsing and light-theme remapping for dark true-colour TUI surfaces | `src/client/terminal-color-adapter.ts` | `src/client/terminal-color-adapter.test.ts`, `tests/browser/theme.spec.ts` |
 | xterm.js | Terminal rendering, fit, input, paste, selection, resize, theme and contrast controls | `src/client/TerminalView.tsx`, `terminal-input.ts` | Browser suites under `tests/browser/` |
 | Browser platform | WebSocket, EventSource, Clipboard, page lifecycle, Visual Viewport, Pointer Events, Canvas | `src/client/` | Chromium browser suite plus focused manual mobile check |
@@ -54,7 +56,8 @@ Control currently calls:
 
 - `session.snapshot`, expecting `result.snapshot` with complete `workspaces`,
   `tabs`, and `panes` arrays. Agent records and terminal/workspace identifiers
-  are reconciled from this structure.
+  are reconciled from this structure. The adaptation module validates required
+  fields throughout each record before the snapshot can reach reconciliation.
 - `worktree.list`, selected by `workspace_id` or `cwd`, expecting `result.source`
   plus a complete `result.worktrees` array. Source fields are `repo_key`,
   `repo_name`, `repo_root`, and `source_checkout_path`. Each Worktree requires

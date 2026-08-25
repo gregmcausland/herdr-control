@@ -13,6 +13,16 @@ import type {
   WorktreeInfo,
 } from "../shared/protocol.js";
 import type { ThreadRestoreRequest } from "./threads.js";
+import {
+  agentIsReadyFromHerdrResponse,
+  type HerdrRestoreLocation,
+  type HerdrThreadLocation,
+  restoreLocationFromHerdrResponse,
+  sessionSnapshotFromHerdrResponse,
+  terminalMessageFromHerdrRecord,
+  threadLocationFromHerdrResponse,
+  worktreeOpenFromHerdrResponse,
+} from "./herdr-protocol.js";
 import { HerdrRequestError, requestHerdr } from "./herdr-socket.js";
 
 type HerdrSocketRequest = typeof requestHerdr;
@@ -25,41 +35,6 @@ export interface HerdrThreadCreationRequest {
   projectWorkspaceId?: string;
   worktree?: WorktreeInfo;
   creation: ThreadCreationRequest;
-}
-
-interface HerdrFrame {
-  type: "terminal.frame";
-  seq: number;
-  width: number;
-  height: number;
-  full: boolean;
-  bytes: string;
-}
-
-interface HerdrClosed {
-  type: "terminal.closed";
-  reason?: string;
-}
-
-type HerdrRecord = HerdrFrame | HerdrClosed;
-
-export function translateHerdrRecord(record: HerdrRecord): TerminalServerMessage {
-  if (record.type === "terminal.frame") {
-    return {
-      type: "frame",
-      seq: record.seq,
-      cols: record.width,
-      rows: record.height,
-      full: record.full,
-      data: record.bytes,
-    };
-  }
-
-  const reason = record.reason ?? "Herdr closed the terminal session";
-  if (reason.includes("already has an attached client") || reason.includes("terminal attach taken over")) {
-    return { type: "occupied", message: reason };
-  }
-  return { type: "closed", reason };
 }
 
 const LEGACY_KEYS: Record<string, string> = {
@@ -131,7 +106,7 @@ export class HerdrTerminalConnection {
 
     lines.on("line", (line) => {
       try {
-        const message = translateHerdrRecord(JSON.parse(line) as HerdrRecord);
+        const message = terminalMessageFromHerdrRecord(JSON.parse(line));
         if (message.type === "frame") this.attached = true;
         if (message.type === "closed" || message.type === "occupied") {
           this.attached = false;
@@ -246,10 +221,7 @@ export class HerdrAdapter {
 
   async snapshot(): Promise<SessionSnapshot> {
     const stdout = await this.run(["api", "snapshot"]);
-    const response = JSON.parse(stdout) as { result?: { snapshot?: SessionSnapshot }; error?: { message?: string } };
-    const snapshot = response.result?.snapshot;
-    if (!snapshot) throw new Error(response.error?.message ?? "Herdr returned no session snapshot");
-    return snapshot;
+    return sessionSnapshotFromHerdrResponse(JSON.parse(stdout));
   }
 
   connectTerminal(
@@ -357,18 +329,14 @@ export class HerdrAdapter {
     agentKind: string,
     started: Record<string, unknown>,
   ): Promise<void> {
-    if (agentIsReady(started, paneId, agentName, agentKind)) return;
+    const expected = { paneId, name: agentName, kind: agentKind };
+    if (agentIsReadyFromHerdrResponse(started, expected)) return;
 
     const deadline = Date.now() + AGENT_START_TIMEOUT_MS;
     while (Date.now() < deadline) {
       try {
         const response = await this.socketRequest(this.socketPath, "agent.get", { target: paneId });
-        const agent = responseAgent(response);
-        const detectedName = text(agent?.name);
-        if (detectedName && detectedName !== agentName) {
-          throw new Error(`Herdr started an unexpected agent in ${paneId}`);
-        }
-        if (agentIsReady(response, paneId, agentName, agentKind)) return;
+        if (agentIsReadyFromHerdrResponse(response, expected)) return;
       } catch (error) {
         if (!(error instanceof HerdrRequestError) || error.code !== "agent_not_found") throw error;
       }
@@ -381,7 +349,7 @@ export class HerdrAdapter {
   private async createThreadLocation(
     request: HerdrThreadCreationRequest,
     title: string,
-  ): Promise<ThreadCreationLocation> {
+  ): Promise<HerdrThreadLocation> {
     const location = request.creation.location;
     if (location.kind === "project") {
       if (request.projectWorkspaceId) {
@@ -440,16 +408,15 @@ export class HerdrAdapter {
     path: string,
     label: string | undefined,
     title: string,
-  ): Promise<ThreadCreationLocation> {
+  ): Promise<HerdrThreadLocation> {
     const opened = await this.socketRequest(this.socketPath, "worktree.open", compactRecord({
       cwd: project.repo_root,
       path,
       label,
       focus: false,
     }));
-    const root = creationLocationFromResponse(opened);
-    const result = object(opened.result);
-    return result?.already_open === true
+    const root = worktreeOpenFromHerdrResponse(opened);
+    return root.alreadyOpen
       ? this.createThreadTab(root.workspaceId, path, title)
       : this.renameRootThreadTab(root, title);
   }
@@ -458,7 +425,7 @@ export class HerdrAdapter {
     workspaceId: string,
     cwd: string,
     title: string,
-  ): Promise<ThreadCreationLocation> {
+  ): Promise<HerdrThreadLocation> {
     const response = await this.socketRequest(this.socketPath, "tab.create", {
       workspace_id: workspaceId,
       cwd,
@@ -466,31 +433,31 @@ export class HerdrAdapter {
       focus: false,
       env: {},
     });
-    return creationLocationFromResponse(response);
+    return threadLocationFromHerdrResponse(response);
   }
 
   private async rootThreadLocation(
     response: Record<string, unknown>,
     title: string,
-  ): Promise<ThreadCreationLocation> {
-    return this.renameRootThreadTab(creationLocationFromResponse(response), title);
+  ): Promise<HerdrThreadLocation> {
+    return this.renameRootThreadTab(threadLocationFromHerdrResponse(response), title);
   }
 
   private async renameRootThreadTab(
-    location: ThreadCreationLocation,
+    location: HerdrThreadLocation,
     title: string,
-  ): Promise<ThreadCreationLocation> {
+  ): Promise<HerdrThreadLocation> {
     await this.socketRequest(this.socketPath, "tab.rename", { tab_id: location.tabId, label: title });
     return location;
   }
 
-  private async createRestoreLocation(request: ThreadRestoreRequest): Promise<RestoreLocation> {
+  private async createRestoreLocation(request: ThreadRestoreRequest): Promise<HerdrRestoreLocation> {
     const cwdArgs = [
       ...(request.cwd ? ["--cwd", request.cwd] : []),
     ];
 
     try {
-      const response = parseHerdrResponse(await this.run([
+      const response = JSON.parse(await this.run([
         "tab",
         "create",
         "--workspace",
@@ -500,12 +467,9 @@ export class HerdrAdapter {
         request.title,
         "--no-focus",
       ]));
-      const paneId = response.result?.root_pane?.pane_id;
-      const tabId = response.result?.tab?.tab_id;
-      if (!paneId || !tabId) throw new Error("Herdr returned an incomplete restored tab");
-      return { kind: "tab", id: tabId, paneId };
+      return restoreLocationFromHerdrResponse(response, "tab");
     } catch {
-      const response = parseHerdrResponse(await this.run([
+      const response = JSON.parse(await this.run([
         "workspace",
         "create",
         ...cwdArgs,
@@ -515,10 +479,7 @@ export class HerdrAdapter {
         request.title,
         "--no-focus",
       ]));
-      const paneId = response.result?.root_pane?.pane_id;
-      const workspaceId = response.result?.workspace?.workspace_id;
-      if (!paneId || !workspaceId) throw new Error("Herdr returned an incomplete restored workspace");
-      return { kind: "workspace", id: workspaceId, paneId };
+      return restoreLocationFromHerdrResponse(response, "workspace");
     }
   }
 
@@ -536,64 +497,6 @@ export class HerdrAdapter {
       });
     });
   }
-}
-
-interface RestoreLocation {
-  kind: "tab" | "workspace";
-  id: string;
-  paneId: string;
-}
-
-interface ThreadCreationLocation {
-  workspaceId: string;
-  tabId: string;
-  paneId: string;
-}
-
-interface HerdrCreationResponse {
-  result?: {
-    root_pane?: { pane_id?: string };
-    tab?: { tab_id?: string };
-    workspace?: { workspace_id?: string };
-  };
-  error?: { message?: string };
-}
-
-function parseHerdrResponse(output: string): HerdrCreationResponse {
-  const response = JSON.parse(output) as HerdrCreationResponse;
-  if (response.error) throw new Error(response.error.message ?? "Herdr command failed");
-  return response;
-}
-
-function creationLocationFromResponse(response: Record<string, unknown>): ThreadCreationLocation {
-  const result = object(response.result);
-  const workspace = object(result?.workspace);
-  const tab = object(result?.tab);
-  const pane = object(result?.root_pane);
-  const workspaceId = text(workspace?.workspace_id) ?? text(tab?.workspace_id);
-  const tabId = text(tab?.tab_id);
-  const paneId = text(pane?.pane_id);
-  if (!workspaceId || !tabId || !paneId) throw new Error("Herdr returned an incomplete Thread location");
-  return { workspaceId, tabId, paneId };
-}
-
-function responseAgent(response: Record<string, unknown>): Record<string, unknown> | undefined {
-  return object(object(response.result)?.agent);
-}
-
-function agentIsReady(
-  response: Record<string, unknown>,
-  paneId: string,
-  agentName: string,
-  agentKind: string,
-): boolean {
-  const agent = responseAgent(response);
-  return text(agent?.pane_id) === paneId
-    && text(agent?.agent) === agentKind
-    && (agent?.name === undefined || agent?.name === null || text(agent.name) === agentName)
-    // Herdr 0.8 omits these newer schema fields once detection completes.
-    && agent?.interactive_ready !== false
-    && agent?.launch_pending !== true;
 }
 
 function delay(milliseconds: number): Promise<void> {
@@ -616,14 +519,4 @@ export function creationAgentName(title: string, agent: string, suffix = randomU
 
 function compactRecord(record: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined));
-}
-
-function object(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined;
-}
-
-function text(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
 }
