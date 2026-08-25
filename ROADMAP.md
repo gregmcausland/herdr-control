@@ -15,7 +15,7 @@ straightforward public project. It records direction, not release dates.
 
 ## Product work
 
-- [ ] **Release groundwork.** Add a licence, security notes, and CI checks. Keep
+- [x] **Release groundwork.** Add a licence, security notes, and CI checks. Keep
   the existing host file intact until its entries have migrated.
 - [x] **Managed installation.** Provide one installation path for the bridge and
   bundled client, with user-level startup, status, logs, updates, and removal.
@@ -28,10 +28,10 @@ straightforward public project. It records direction, not release dates.
 
 ## Public release
 
-- [ ] Complete the host configuration migration, verify every existing Control
+- [x] Complete the host configuration migration, verify every existing Control
   Host, then remove personal configuration and provide safe defaults.
 - [ ] Publish versioned release artifacts with compatibility information.
-- [ ] Provide a five-minute install, Control Host setup, and first-Thread
+- [x] Provide a five-minute install, Control Host setup, and first-Thread
   walkthrough.
 
 ## Architecture follow-ups

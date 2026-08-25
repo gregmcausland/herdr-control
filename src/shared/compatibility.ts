@@ -1,3 +1,4 @@
+export const CONTROL_VERSION = "0.1.0";
 export const HERDR_PROTOCOL_MIN = 19;
 export const HERDR_PROTOCOL_MAX = 20;
 

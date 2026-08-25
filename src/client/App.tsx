@@ -210,6 +210,11 @@ export function App() {
       {projectGroups.length === 0 && liveSessions.every((feed) => feed.status === "connecting") && (
         <p className="notice">Connecting to configured Herdr servers…</p>
       )}
+      {projectGroups.length === 0 && liveSessions.some((feed) => feed.status === "live") && (
+        <p className="notice">
+          Connected. Open a repository-backed workspace in Herdr to create your first Project and Thread.
+        </p>
+      )}
       {liveSessions.filter((feed) => (
         feed.status === "stale"
         && !feed.snapshot

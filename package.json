@@ -1,7 +1,7 @@
 {
   "name": "herdr-control",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "concurrently -n bridge,client -c cyan,magenta \"npm:dev:bridge\" \"npm:dev:client\"",
@@ -14,6 +14,7 @@
     "test": "vitest run src scripts",
     "test:browser": "playwright test",
     "control": "node scripts/herdr-control.mjs",
+    "release:bundle": "node scripts/build-release.mjs",
     "validate:host-migration": "npm run build:server && node scripts/validate-host-migration.mjs",
     "start": "node dist/server/server/index.js"
   },

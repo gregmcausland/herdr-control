@@ -101,6 +101,10 @@ npm run control -- install
 
 Open `http://127.0.0.1:4173`.
 
+The [five-minute walkthrough](docs/getting-started.md) covers naming the Home
+bridge, adding another machine, private remote access, and creating a first
+Thread. Tested versions are recorded in [compatibility](COMPATIBILITY.md).
+
 The installer builds Control and starts `herdr-control.service` for the current
 Linux user. It preserves an existing service's Control environment settings and
 does not replace the state database.
@@ -156,9 +160,11 @@ rename, check, or remove machines. The browser connects to every listed bridge
 directly, so each bridge must allow the Home bridge's origin for cross-host
 HTTP, SSE, and WebSocket connections.
 
-The current migration release imports `src/client/hosts.json` once and retains
-it as a fallback. See the [host configuration migration](docs/host-configuration-migration.md)
-before upgrading an existing installation.
+Older installations can import a previous JSON host list once by setting
+`HERDR_CONTROL_LEGACY_HOSTS` to that file before starting the bridge. Current
+installs do not bundle any machine names or URLs. See the
+[host configuration migration](docs/host-configuration-migration.md) for backup
+and recovery details.
 
 ## Configuration
 
@@ -169,7 +175,7 @@ before upgrading an existing installation.
 | `HERDR_CONTROL_BIN` | `herdr` | Herdr executable |
 | `HERDR_CONTROL_SOCKET` | Herdr's default socket | Explicit Herdr socket path |
 | `HERDR_CONTROL_STATE` | `~/.local/state/herdr-control/control.db` | Durable Control state database |
-| `HERDR_CONTROL_LEGACY_HOSTS` | `src/client/hosts.json` in the working directory | One-time source for Control Host migration |
+| `HERDR_CONTROL_LEGACY_HOSTS` | Unset | Optional one-time source for a legacy JSON Control Host list |
 | `HERDR_CONTROL_ALLOWED_ORIGINS` | Local Control and Vite origins | Comma-separated origins for separately hosted clients |
 
 ## Development

@@ -70,7 +70,7 @@ async function install() {
     const values = {
       ...inherited,
       HERDR_CONTROL_BIN: herdrBinary,
-      HERDR_CONTROL_LEGACY_HOSTS: legacyHostsPath,
+      HERDR_CONTROL_LEGACY_HOSTS: existsSync(legacyHostsPath) ? legacyHostsPath : undefined,
     };
     writeFileSync(environmentPath, environmentFile(values), { mode: 0o600 });
   }

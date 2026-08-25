@@ -1,4 +1,3 @@
-import hostConfig from "./hosts.json";
 import {
   normalizeControlHostUrl,
   type ControlHost,
@@ -10,11 +9,8 @@ export function normalizeHost(value: string): string {
   return normalizeControlHostUrl(value);
 }
 
-/** One-release fallback while the Home bridge imports build-time configuration. */
-export const configuredHosts: readonly ControlHost[] = hostConfig.map((host) => ({
-  label: host.label,
-  url: normalizeHost(host.url),
-}));
+/** Safe fallback for a new bridge before any Control Hosts have been saved. */
+export const configuredHosts: readonly ControlHost[] = [];
 
 export function resolveInitialHost(search: string, storedHost: string | null, origin: string): string {
   const queryHost = new URLSearchParams(search).get("host");

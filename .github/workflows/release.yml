@@ -1,0 +1,32 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Verify tag and package version
+        run: test "$GITHUB_REF_NAME" = "v$(node -p "require('./package.json').version")"
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser -- tests/browser/multi-host.spec.ts
+      - run: npm run release:bundle
+      - name: Publish GitHub release
+        run: gh release create "$GITHUB_REF_NAME" artifacts/* --verify-tag --generate-notes --title "Herdr Control $GITHUB_REF_NAME"
+        env:
+          GH_TOKEN: ${{ github.token }}

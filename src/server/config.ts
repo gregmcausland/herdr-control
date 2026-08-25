@@ -1,6 +1,6 @@
 import type { IncomingMessage } from "node:http";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 
 export interface ServerConfig {
   host: string;
@@ -27,8 +27,7 @@ export function loadConfig(environment = process.env): ServerConfig {
       ?? join(environment.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "herdr", "herdr.sock"),
     statePath: environment.HERDR_CONTROL_STATE
       ?? join(environment.XDG_STATE_HOME ?? join(homedir(), ".local", "state"), "herdr-control", "control.db"),
-    legacyHostsPath: environment.HERDR_CONTROL_LEGACY_HOSTS
-      ?? resolve(process.cwd(), "src/client/hosts.json"),
+    legacyHostsPath: environment.HERDR_CONTROL_LEGACY_HOSTS,
     allowedOrigins: new Set(
       (environment.HERDR_CONTROL_ALLOWED_ORIGINS
         ?? `http://localhost:${port},http://127.0.0.1:${port},http://localhost:5173,http://127.0.0.1:5173`)

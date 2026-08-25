@@ -5,6 +5,11 @@ import { WebSocket, WebSocketServer } from "ws";
 import type {
   ControlHost,
 } from "../shared/control-hosts.js";
+import {
+  CONTROL_VERSION,
+  HERDR_PROTOCOL_MAX,
+  HERDR_PROTOCOL_MIN,
+} from "../shared/compatibility.js";
 import type {
   TerminalClientMessage,
   TerminalMode,
@@ -94,7 +99,11 @@ export function createControlServer(
 
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
     if (request.method === "GET" && url.pathname === "/api/health") {
-      sendJson(response, 200, { ok: true });
+      sendJson(response, 200, {
+        ok: true,
+        control_version: CONTROL_VERSION,
+        herdr_protocol: { min: HERDR_PROTOCOL_MIN, max: HERDR_PROTOCOL_MAX },
+      });
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/control-hosts") {
