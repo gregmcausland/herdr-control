@@ -5,3 +5,4 @@ dist/
 playwright-report/
 test-results/
 artifacts/
+MIGRATION.local.md

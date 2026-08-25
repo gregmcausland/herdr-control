@@ -34,23 +34,13 @@ npm run validate:host-migration -- /path/to/control.db /path/to/hosts.json
 
 The validator works on an online copy and does not change the supplied database.
 
-## Greg's completed migration
+## Completion and recovery
 
-Completed on 25 August 2026:
+Before removing a legacy file, confirm that every expected host is returned by
+`/api/control-hosts`, each host loads its Projects, the migration marker exists,
+and SQLite integrity and foreign-key checks pass.
 
-- Server MZ retained 3 Projects, 6 Worktrees, 19 Threads, and 24 Runs. Its
-  database backup is
-  `~/.local/state/herdr-control/control.db.backup-20260825T191321Z`.
-- Alien MZ retained 3 Projects, 3 Worktrees, 7 Threads, and 9 Runs. Its installer
-  backup is `~/.local/state/herdr-control/control.db.backup-20260825T192810Z`;
-  an additional pre-cutover backup and service unit are under
-  `~/.local/state/herdr-control/migration-backups/20260825T192806Z/`.
-- Both databases passed integrity checks, contain the one-time migration marker,
-  and return `Server MZ` and `Alien MZ` from `/api/control-hosts`.
-- Both hosts loaded Projects over their Tailscale URLs. Alien MZ's original
-  checkout remains at `~/Projects/herdr-control`; the managed checkout is
-  `~/Projects/herdr-control-managed`.
-
-To recover, stop the user service, restore the relevant `control.db` backup,
-restore the saved unit if required, then restart the service. The backups contain
-Control metadata and host URLs, not Tailscale authentication credentials.
+To recover, stop the user service, restore the pre-migration `control.db` backup
+and saved service unit if required, then restart the service. These backups
+contain Control metadata and host URLs, not access-layer authentication
+credentials.
