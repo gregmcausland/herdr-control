@@ -30,7 +30,7 @@ straightforward public project. It records direction, not release dates.
 
 - [x] Complete the host configuration migration, verify every existing Control
   Host, then remove personal configuration and provide safe defaults.
-- [ ] Publish versioned release artifacts with compatibility information.
+- [x] Publish versioned release artifacts with compatibility information.
 - [x] Provide a five-minute install, Control Host setup, and first-Thread
   walkthrough.
 
