@@ -35,3 +35,10 @@ export function threadPath(threadId: string, search = ""): string {
 export function homePath(search = ""): string {
   return `/${search}`;
 }
+
+/** Preserves unrelated query state while selecting the bridge that owns a route. */
+export function searchForHost(hostUrl: string, search = ""): string {
+  const params = new URLSearchParams(search);
+  params.set("host", hostUrl);
+  return `?${params.toString()}`;
+}

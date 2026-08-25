@@ -94,7 +94,11 @@ export function TerminalView({ bridgeUrl, pane, themeId, fontFamily, fontSize, c
     if (!terminal) return;
     clearReconnect();
     wantsConnectionRef.current = true;
-    socketRef.current?.close();
+    const previousSocket = socketRef.current;
+    if (modeRef.current === "control" && previousSocket?.readyState === WebSocket.OPEN) {
+      previousSocket.send(JSON.stringify({ type: "release" }));
+    }
+    previousSocket?.close();
     modeRef.current = nextMode;
     setMode(nextMode);
     setState("connecting");
@@ -190,16 +194,22 @@ export function TerminalView({ bridgeUrl, pane, themeId, fontFamily, fontSize, c
     const followPageVisibility = () => {
       if (document.visibilityState === "hidden") {
         if (wantsConnectionRef.current) disconnect("Control released while app was in background", true);
-      } else if (wantsConnectionRef.current && !socketRef.current) {
+      } else if (wantsConnectionRef.current) {
+        // Mobile browsers can suspend without closing a socket. Replace it on
+        // resume even when it still claims to be open, so Herdr sends a fresh frame.
         openRef.current(modeRef.current);
       }
     };
     const releaseOnPageHide = () => {
       if (wantsConnectionRef.current) disconnect("Control released while app was in background", true);
     };
+    const reconnectFromPageCache = (event: PageTransitionEvent) => {
+      if (event.persisted && wantsConnectionRef.current) openRef.current(modeRef.current);
+    };
     document.addEventListener("visibilitychange", followPageVisibility);
     window.addEventListener("pagehide", releaseOnPageHide);
-    window.addEventListener("pageshow", followPageVisibility);
+    window.addEventListener("pageshow", reconnectFromPageCache);
+    window.addEventListener("online", followPageVisibility);
     open("control");
 
     return () => {
@@ -213,7 +223,8 @@ export function TerminalView({ bridgeUrl, pane, themeId, fontFamily, fontSize, c
       socket?.close();
       document.removeEventListener("visibilitychange", followPageVisibility);
       window.removeEventListener("pagehide", releaseOnPageHide);
-      window.removeEventListener("pageshow", followPageVisibility);
+      window.removeEventListener("pageshow", reconnectFromPageCache);
+      window.removeEventListener("online", followPageVisibility);
       observer.disconnect();
       detachViewport();
       input.dispose();

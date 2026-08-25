@@ -19,10 +19,10 @@ still change.
 
 ### What you can do
 
-- See agents and shells grouped by repository Project, with live status updates
-  from Herdr.
+- See agents and shells from every configured Herdr machine, grouped by
+  repository Project with live status updates.
 - Start a configured coding agent in a Project, an existing Worktree, a new
-  Worktree, or an existing checkout. Each agent receives its own Herdr tab.
+  Worktree, or an existing checkout. Each agent starts in its own Thread.
 - Supply an optional title and initial message when starting an agent.
 - Follow how long an agent has been working and see the duration of its latest
   completed working period.
@@ -46,8 +46,8 @@ workspace, tab, and pane layout changes.
 
 - Control has no built-in authentication. Keep the bridge on localhost and use
   a trusted access layer for remote access.
-- Session restoration currently supports Codex, Claude, and Pi, and requires a
-  session reference reported by the corresponding Herdr integration.
+- Thread restoration currently supports Codex, Claude, and Pi, and requires a
+  provider reference reported by the corresponding Herdr integration.
 - A thread that ends before gaining a resumable session reference cannot be
   restored and is removed rather than placed in the archive.
 - Chromium desktop and a phone-sized Chromium viewport have been validated.
@@ -101,8 +101,8 @@ npm start
 
 Open `http://127.0.0.1:4173`.
 
-Use the host picker in the header to move between configured Herdr machines. The
-last selection is remembered by the browser.
+Control connects to every configured Herdr machine and shows their Projects in
+one view. Each Project identifies its owning machine.
 
 ## Remote access
 
@@ -116,7 +116,7 @@ tailscale serve 4173
 Open the HTTPS address printed by Tailscale. Do not bind Control directly to a
 public or untrusted network because it does not provide its own authentication.
 
-## Session restoration
+## Thread restoration
 
 For resumable Codex, Claude, and Pi threads, install Herdr's provider
 integrations once on the machine running the agents:
@@ -134,8 +134,9 @@ Herdr must wait for its worktree before safely retiring the pane.
 ## Configuration
 
 Browser hosts are defined in `src/client/hosts.json` and bundled into the client
-at build time. Each host's bridge must allow the other configured Control origins
-when cross-host switching is required.
+at build time. The client connects to every listed bridge directly. Each bridge
+must allow the origin serving Control so cross-host HTTP, SSE, and WebSocket
+connections succeed.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { homePath, panePath, terminalRouteFromPath, threadPath } from "./routes";
+import { homePath, panePath, searchForHost, terminalRouteFromPath, threadPath } from "./routes";
 
 describe("client routes", () => {
   it("round-trips Herdr pane IDs and preserves connection queries", () => {
@@ -18,6 +18,11 @@ describe("client routes", () => {
 
     expect(path).toBe("/threads/thread-123");
     expect(terminalRouteFromPath(path)).toEqual({ kind: "thread", id: "thread-123" });
+  });
+
+  it("qualifies a terminal route with its owning host", () => {
+    expect(searchForHost("https://alien.example", "?theme=dark&host=https%3A%2F%2Fold.example"))
+      .toBe("?theme=dark&host=https%3A%2F%2Falien.example");
   });
 
   it("ignores unrelated and malformed pane routes", () => {

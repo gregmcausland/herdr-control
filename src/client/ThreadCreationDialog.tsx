@@ -72,7 +72,7 @@ export function ThreadCreationDialog({
           <span className="action-dialog-icon creation" aria-hidden="true"><PlusIcon /></span>
           <div>
             <h2>New thread</h2>
-            <p>Start an agent in {project.name}. Herdr will give it a dedicated tab.</p>
+            <p>Start an agent in {project.name} as a dedicated Thread.</p>
           </div>
         </div>
 

@@ -1,20 +1,47 @@
 import { useEffect, useRef, useState } from "react";
-import type { PaneInfo, ProjectInfo, ThreadCreationRequest, ThreadInfo } from "../shared/protocol";
+import type { PaneInfo, ProjectInfo, SessionSnapshot, ThreadCreationRequest, ThreadInfo } from "../shared/protocol";
 import { TerminalView } from "./TerminalView";
 import { PlusIcon, ThreadCreationDialog } from "./ThreadCreationDialog";
 import { SettingsDialog, SettingsIcon } from "./SettingsDialog";
 import { applyFontSettings, readAppSettings, storeAppSettings } from "./settings";
-import { hostOptions, normalizeHost, resolveInitialHost } from "./hosts";
-import { useLiveSession } from "./live-session";
+import { hostOptions, resolveInitialHost, type ControlHost } from "./hosts";
+import {
+  archivedThreadsAcrossHosts,
+  projectsAcrossHosts,
+  type HostedArchivedThread,
+} from "./hosted-projects";
+import { useLiveSessions } from "./live-session";
 import { applyAppTheme } from "./theme";
 import { WorkingActivity } from "./WorkingActivity";
-import { groupPanesByProject } from "./workspace-groups";
-import { homePath, panePath, terminalRouteFromPath, threadPath, type TerminalRoute } from "./routes";
+import {
+  homePath,
+  panePath,
+  searchForHost,
+  terminalRouteFromPath,
+  threadPath,
+  type TerminalRoute,
+} from "./routes";
 import { workingDuration } from "./working-duration";
 
 const STORAGE_KEY = "herdr-control-host";
 
-type PaneAction = { kind: "archive" | "delete"; pane: PaneInfo; thread?: ThreadInfo };
+type PaneAction = {
+  kind: "archive" | "delete";
+  host: ControlHost;
+  pane: PaneInfo;
+  thread?: ThreadInfo;
+};
+
+type CreationTarget = {
+  host: ControlHost;
+  project: ProjectInfo;
+  snapshot: SessionSnapshot;
+};
+
+type TerminalSelection = {
+  hostUrl: string;
+  route: TerminalRoute;
+};
 
 function initialHost(): string {
   return resolveInitialHost(
@@ -22,6 +49,19 @@ function initialHost(): string {
     localStorage.getItem(STORAGE_KEY),
     window.location.origin,
   );
+}
+
+function initialHosts(): readonly ControlHost[] {
+  return hostOptions(initialHost());
+}
+
+function terminalSelectionFromLocation(): TerminalSelection | undefined {
+  const route = terminalRouteFromPath(window.location.pathname);
+  return route ? { route, hostUrl: initialHost() } : undefined;
+}
+
+function feedStatusLabel(status: "connecting" | "live" | "stale"): string {
+  return status === "live" ? "Live" : status === "stale" ? "Reconnecting" : "Connecting";
 }
 
 function paneTitle(pane: PaneInfo): string {
@@ -85,7 +125,7 @@ function PaneActionDialog({
             {archive
               ? `${paneTitle(action.pane)} will leave the active view and can be restored later. Its terminal will retire when safe.`
               : action.thread
-                ? `${paneTitle(action.pane)} has no resumable session yet. It will be permanently removed from Control and its terminal will retire when safe.`
+                ? `${paneTitle(action.pane)} cannot be resumed yet. The Thread will be permanently removed from Control and its terminal will retire when safe.`
                 : `${paneTitle(action.pane)} will be removed from Control and its terminal will retire when safe.`}
           </p>
           {error && <p className="action-dialog-error">{error}</p>}
@@ -129,45 +169,35 @@ function WorktreeIcon() {
 }
 
 export function App() {
-  const [bridgeUrl, setBridgeUrl] = useState(initialHost);
-  const [terminalRoute, setTerminalRoute] = useState<TerminalRoute | undefined>(
-    () => terminalRouteFromPath(window.location.pathname),
+  const [hosts] = useState<readonly ControlHost[]>(initialHosts);
+  const [terminalSelection, setTerminalSelection] = useState<TerminalSelection | undefined>(
+    terminalSelectionFromLocation,
   );
   const [settings, setSettings] = useState(readAppSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [paneAction, setPaneAction] = useState<PaneAction>();
   const [pendingAction, setPendingAction] = useState(false);
   const [actionError, setActionError] = useState<string>();
-  const [restoringThreadId, setRestoringThreadId] = useState<string>();
-  const [creationProject, setCreationProject] = useState<ProjectInfo>();
+  const [restoringThreadKey, setRestoringThreadKey] = useState<string>();
+  const [creationTarget, setCreationTarget] = useState<CreationTarget>();
   const [creationPending, setCreationPending] = useState(false);
   const [creationError, setCreationError] = useState<string>();
   const [clock, setClock] = useState(Date.now);
-  const liveSession = useLiveSession(bridgeUrl);
-  const snapshot = liveSession.snapshot;
-  const archivedThreads = snapshot?.threads?.filter(
-    (thread) => thread.lifecycle === "archived" && thread.agent_session,
-  ) ?? [];
-  const archivedThreadIds = new Set(archivedThreads.map((thread) => thread.thread_id));
-  const linkedWorktreeIds = new Set(
-    snapshot?.worktrees?.filter((worktree) => worktree.is_linked_worktree).map((worktree) => worktree.worktree_id),
-  );
-  const projectGroups = snapshot
-    ? groupPanesByProject(
-        snapshot.projects ?? [],
-        snapshot.worktrees ?? [],
-        snapshot.workspaces,
-        snapshot.panes.filter((pane) => !pane.thread_id || !archivedThreadIds.has(pane.thread_id)),
-      )
-    : [];
-  const activePane = terminalRoute?.kind === "thread"
-    ? snapshot?.panes.find((pane) => pane.thread_id === terminalRoute.id)
-    : terminalRoute?.kind === "pane"
-      ? snapshot?.panes.find((pane) => pane.pane_id === terminalRoute.id)
+  const liveSessions = useLiveSessions(hosts);
+  const projectGroups = projectsAcrossHosts(liveSessions);
+  const archivedThreads = archivedThreadsAcrossHosts(liveSessions);
+  const activeFeed = terminalSelection
+    ? liveSessions.find((feed) => feed.host.url === terminalSelection.hostUrl)
+    : undefined;
+  const activeSnapshot = activeFeed?.snapshot;
+  const activePane = terminalSelection?.route.kind === "thread"
+    ? activeSnapshot?.panes.find((pane) => pane.thread_id === terminalSelection.route.id)
+    : terminalSelection?.route.kind === "pane"
+      ? activeSnapshot?.panes.find((pane) => pane.pane_id === terminalSelection.route.id)
       : undefined;
-  const hasWorkingDuration = snapshot?.panes.some(
+  const hasWorkingDuration = liveSessions.some((feed) => feed.snapshot?.panes.some(
     (pane) => pane.agent_status === "working" && pane.working_started_at,
-  ) ?? false;
+  ));
 
   useEffect(() => {
     applyAppTheme(settings.theme);
@@ -183,44 +213,37 @@ export function App() {
   }, [hasWorkingDuration]);
 
   useEffect(() => {
-    const followBrowserHistory = () => setTerminalRoute(terminalRouteFromPath(window.location.pathname));
+    const followBrowserHistory = () => setTerminalSelection(terminalSelectionFromLocation());
     window.addEventListener("popstate", followBrowserHistory);
     return () => window.removeEventListener("popstate", followBrowserHistory);
   }, []);
 
   useEffect(() => {
-    if (!terminalRoute || !snapshot || activePane) return;
+    if (!terminalSelection || !activeSnapshot || activePane) return;
     window.history.replaceState(null, "", homePath(window.location.search));
-    setTerminalRoute(undefined);
-  }, [activePane, snapshot, terminalRoute]);
+    setTerminalSelection(undefined);
+  }, [activePane, activeSnapshot, terminalSelection]);
 
-  function selectHost(value: string) {
-    const nextBridgeUrl = normalizeHost(value);
-    localStorage.setItem(STORAGE_KEY, nextBridgeUrl);
-    const location = new URL(window.location.href);
-    location.searchParams.set("host", nextBridgeUrl);
-    window.history.replaceState(null, "", `${location.pathname}${location.search}${location.hash}`);
-    setBridgeUrl(nextBridgeUrl);
-  }
-
-  function openPane(pane: PaneInfo) {
+  function openPane(host: ControlHost, pane: PaneInfo) {
     const route: TerminalRoute = pane.thread_id
       ? { kind: "thread", id: pane.thread_id }
       : { kind: "pane", id: pane.pane_id };
+    const search = searchForHost(host.url, window.location.search);
     const path = route.kind === "thread"
-      ? threadPath(route.id, window.location.search)
-      : panePath(route.id, window.location.search);
+      ? threadPath(route.id, search)
+      : panePath(route.id, search);
+    localStorage.setItem(STORAGE_KEY, host.url);
     window.history.pushState(null, "", path);
-    setTerminalRoute(route);
+    setTerminalSelection({ route, hostUrl: host.url });
   }
 
   function returnHome() {
     window.history.pushState(null, "", homePath(window.location.search));
-    setTerminalRoute(undefined);
+    setTerminalSelection(undefined);
   }
 
-  async function sendAction(path: string, method: "POST" | "DELETE"): Promise<void> {
-    const response = await fetch(`${bridgeUrl}${path}`, { method });
+  async function sendAction(hostUrl: string, path: string, method: "POST" | "DELETE"): Promise<void> {
+    const response = await fetch(`${hostUrl}${path}`, { method });
     const body = await response.json().catch(() => undefined) as { error?: string } | undefined;
     if (!response.ok) throw new Error(body?.error ?? `Request failed with status ${response.status}`);
   }
@@ -235,7 +258,7 @@ export function App() {
         : paneAction.thread
           ? `/api/threads/${encodeURIComponent(paneAction.thread.thread_id)}`
           : `/api/panes/${encodeURIComponent(paneAction.pane.pane_id)}`;
-      await sendAction(path, paneAction.kind === "archive" ? "POST" : "DELETE");
+      await sendAction(paneAction.host.url, path, paneAction.kind === "archive" ? "POST" : "DELETE");
       setPaneAction(undefined);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : `Unable to ${paneAction.kind} pane`);
@@ -244,25 +267,29 @@ export function App() {
     }
   }
 
-  async function restoreThread(thread: ThreadInfo) {
-    setRestoringThreadId(thread.thread_id);
+  async function restoreThread(archived: HostedArchivedThread) {
+    setRestoringThreadKey(archived.key);
     setActionError(undefined);
     try {
-      await sendAction(`/api/threads/${encodeURIComponent(thread.thread_id)}/restore`, "POST");
+      await sendAction(
+        archived.host.url,
+        `/api/threads/${encodeURIComponent(archived.thread.thread_id)}/restore`,
+        "POST",
+      );
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Unable to restore Thread");
     } finally {
-      setRestoringThreadId(undefined);
+      setRestoringThreadKey(undefined);
     }
   }
 
   async function createThread(request: ThreadCreationRequest) {
-    if (!creationProject) return;
+    if (!creationTarget) return;
     setCreationPending(true);
     setCreationError(undefined);
     try {
       const response = await fetch(
-        `${bridgeUrl}/api/projects/${encodeURIComponent(creationProject.project_id)}/threads`,
+        `${creationTarget.host.url}/api/projects/${encodeURIComponent(creationTarget.project.project_id)}/threads`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -271,7 +298,7 @@ export function App() {
       );
       const body = await response.json().catch(() => undefined) as { error?: string } | undefined;
       if (!response.ok) throw new Error(body?.error ?? `Request failed with status ${response.status}`);
-      setCreationProject(undefined);
+      setCreationTarget(undefined);
     } catch (error) {
       setCreationError(error instanceof Error ? error.message : "Unable to create Thread");
     } finally {
@@ -282,7 +309,7 @@ export function App() {
   if (activePane) {
     return (
       <TerminalView
-        bridgeUrl={bridgeUrl}
+        bridgeUrl={terminalSelection!.hostUrl}
         pane={activePane}
         themeId={settings.theme}
         fontFamily={settings.terminalFontFamily}
@@ -298,22 +325,17 @@ export function App() {
       <header className="masthead">
         <h1>Herdr Control</h1>
         <div className="masthead-actions">
-          {snapshot && (
-            <span className="herdr-version"><span className="herdr-version-prefix">Herdr </span>{snapshot.version}</span>
-          )}
-          <select
-            className="host-picker"
-            aria-label="Herdr host"
-            value={bridgeUrl}
-            onChange={(event) => selectHost(event.target.value)}
-          >
-            {hostOptions(bridgeUrl).map((host) => (
-              <option key={host.url} value={host.url}>{host.label}</option>
+          <div className="host-status-list" aria-label="Herdr servers">
+            {liveSessions.map((feed) => (
+              <span
+                className={`connection-status host-status ${feed.status}`}
+                key={feed.host.url}
+                title={`${feed.host.label}: ${feedStatusLabel(feed.status)}${feed.snapshot ? ` · Herdr ${feed.snapshot.version}` : ""}`}
+              >
+                {feed.host.label}
+              </span>
             ))}
-          </select>
-          <span className={`connection-status ${liveSession.status}`}>
-            {liveSession.status === "live" ? "Live" : liveSession.status === "stale" ? "Reconnecting" : "Connecting"}
-          </span>
+          </div>
           <button
             className="secondary icon-button settings-trigger"
             type="button"
@@ -326,105 +348,127 @@ export function App() {
         </div>
       </header>
 
-      {liveSession.status === "connecting" && <p className="notice">Connecting to {bridgeUrl}…</p>}
-      {liveSession.status === "stale" && (
-        <p className={`notice ${snapshot ? "" : "error"}`}>
-          {snapshot ? "Showing the last known state. " : ""}{liveSession.message ?? "Unable to connect to bridge"}
-        </p>
+      {projectGroups.length === 0 && liveSessions.every((feed) => feed.status === "connecting") && (
+        <p className="notice">Connecting to configured Herdr servers…</p>
       )}
-      {!paneAction && !creationProject && actionError && <p className="notice error">{actionError}</p>}
+      {liveSessions.filter((feed) => feed.status === "stale" && !feed.snapshot).map((feed) => (
+        <p className="notice error" key={feed.host.url}>
+          <strong>{feed.host.label}:</strong> {feed.message ?? "Unable to connect to bridge"}
+        </p>
+      ))}
+      {!paneAction && !creationTarget && actionError && <p className="notice error">{actionError}</p>}
 
-      {snapshot && (
+      {liveSessions.some((feed) => feed.snapshot) && (
         <section className="inventory">
-          {projectGroups.map(({ id, label, project, panes }) => (
-            <section className="workspace-group" key={id}>
-              <h3 className="workspace-divider">
-                <span>{label}</span>
-                {project && (
-                  <button
-                    className="project-create secondary icon-button"
-                    type="button"
-                    disabled={liveSession.status !== "live"}
-                    aria-label={`New Thread in ${project.name}`}
-                    title={`New Thread in ${project.name}`}
-                    onClick={() => {
-                      setCreationError(undefined);
-                      setCreationProject(project);
-                    }}
+          {projectGroups.map(({ key, label, project, panes, host, feedStatus, snapshot }) => {
+            const linkedWorktreeIds = new Set(
+              snapshot.worktrees
+                ?.filter((worktree) => worktree.is_linked_worktree)
+                .map((worktree) => worktree.worktree_id),
+            );
+            return (
+              <section className="workspace-group" key={key}>
+                <h3 className="workspace-divider">
+                  <span>{label}</span>
+                  <span
+                    className={`connection-status project-host ${feedStatus}`}
+                    title={`${host.label}: ${feedStatusLabel(feedStatus)}`}
                   >
-                    <PlusIcon />
-                  </button>
-                )}
-              </h3>
-              {panes.length > 0 && <div className="pane-list">
-                {panes.map((pane) => {
-                  const thread = snapshot.threads?.find((candidate) => candidate.thread_id === pane.thread_id);
-                  const kind = thread?.agent_session ? "archive" : "delete";
-                  return <div className="pane-row" key={pane.pane_id}>
+                    {host.label}
+                  </span>
+                  {project && (
                     <button
-                      className={`pane ${pane.agent_status === "working" ? "working" : ""}`}
-                      title={pane.pane_id}
-                      aria-label={`Open ${paneTitle(pane)}`}
-                      onClick={() => openPane(pane)}
-                    >
-                      {pane.agent_status === "working" && <WorkingActivity themeId={settings.theme} />}
-                      <span
-                        className={`status ${pane.agent_status ?? "unknown"}`}
-                        title={pane.agent_status ?? "unknown"}
-                      />
-                      <span className="pane-copy">
-                        <strong>{paneTitle(pane)}</strong>
-                        <small className="pane-detail">
-                          {pane.worktree_id && linkedWorktreeIds.has(pane.worktree_id) && (
-                            <span className="worktree-indicator" title="Worktree">
-                              <WorktreeIcon />
-                            </span>
-                          )}
-                          <span>{paneDetail(pane, clock)}</span>
-                        </small>
-                      </span>
-                    </button>
-                    <button
-                      className="pane-manage secondary icon-button"
+                      className="project-create secondary icon-button"
                       type="button"
-                      aria-label={`${kind === "archive" ? "Archive" : "Delete"} ${paneTitle(pane)}`}
-                      title={kind === "archive" ? "Archive thread" : thread ? "Delete thread" : "Delete pane"}
+                      disabled={feedStatus !== "live"}
+                      aria-label={`New Thread in ${project.name} on ${host.label}`}
+                      title={`New Thread in ${project.name} on ${host.label}`}
                       onClick={() => {
-                        setActionError(undefined);
-                        setPaneAction({
-                          kind,
-                          pane,
-                          thread,
-                        });
+                        setCreationError(undefined);
+                        setCreationTarget({ host, project, snapshot });
                       }}
                     >
-                      {kind === "archive" ? <ArchiveIcon /> : <TrashIcon />}
+                      <PlusIcon />
                     </button>
-                  </div>
-                })}
-              </div>}
-            </section>
-          ))}
+                  )}
+                </h3>
+                {panes.length > 0 && <div className="pane-list">
+                  {panes.map((pane) => {
+                    const thread = snapshot.threads?.find((candidate) => candidate.thread_id === pane.thread_id);
+                    const kind = thread?.agent_session ? "archive" : "delete";
+                    return <div className="pane-row" key={pane.pane_id}>
+                      <button
+                        className={`pane ${pane.agent_status === "working" ? "working" : ""}`}
+                        title={`${host.label} · ${pane.pane_id}`}
+                        aria-label={`Open ${paneTitle(pane)} on ${host.label}`}
+                        onClick={() => openPane(host, pane)}
+                      >
+                        {pane.agent_status === "working" && <WorkingActivity themeId={settings.theme} />}
+                        <span
+                          className={`status ${pane.agent_status ?? "unknown"}`}
+                          title={pane.agent_status ?? "unknown"}
+                        />
+                        <span className="pane-copy">
+                          <strong>{paneTitle(pane)}</strong>
+                          <small className="pane-detail">
+                            {pane.worktree_id && linkedWorktreeIds.has(pane.worktree_id) && (
+                              <span className="worktree-indicator" title="Worktree">
+                                <WorktreeIcon />
+                              </span>
+                            )}
+                            <span>{paneDetail(pane, clock)}</span>
+                          </small>
+                        </span>
+                      </button>
+                      <button
+                        className="pane-manage secondary icon-button"
+                        type="button"
+                        disabled={feedStatus !== "live"}
+                        aria-label={`${kind === "archive" ? "Archive" : "Delete"} ${paneTitle(pane)} on ${host.label}`}
+                        title={kind === "archive" ? "Archive thread" : thread ? "Delete thread" : "Delete pane"}
+                        onClick={() => {
+                          setActionError(undefined);
+                          setPaneAction({ kind, host, pane, thread });
+                        }}
+                      >
+                        {kind === "archive" ? <ArchiveIcon /> : <TrashIcon />}
+                      </button>
+                    </div>
+                  })}
+                </div>}
+              </section>
+            );
+          })}
           {archivedThreads.length > 0 && (
             <section className="workspace-group archived-group">
               <h3 className="workspace-divider">Archived</h3>
               <div className="pane-list archived-list">
-                {archivedThreads.map((thread) => (
-                  <div className="archived-thread" key={thread.thread_id}>
-                    <span className="archived-thread-icon" aria-hidden="true"><ArchiveIcon /></span>
-                    <span className="archived-thread-title">{thread.title}</span>
-                    {thread.agent_session && !thread.current_run && (
-                      <button
-                        className="secondary archived-restore"
-                        type="button"
-                        disabled={thread.restoring || restoringThreadId === thread.thread_id}
-                        onClick={() => void restoreThread(thread)}
-                      >
-                        {thread.restoring || restoringThreadId === thread.thread_id ? "Restoring…" : "Restore"}
-                      </button>
-                    )}
-                  </div>
-                ))}
+                {archivedThreads.map((archived) => {
+                  const { thread } = archived;
+                  return (
+                    <div className="archived-thread" key={archived.key}>
+                      <span className="archived-thread-icon" aria-hidden="true"><ArchiveIcon /></span>
+                      <span className="archived-thread-title">
+                        {thread.title}
+                        <small>{archived.host.label}</small>
+                      </span>
+                      {thread.agent_session && !thread.current_run && (
+                        <button
+                          className="secondary archived-restore"
+                          type="button"
+                          disabled={
+                            archived.feedStatus !== "live"
+                            || thread.restoring
+                            || restoringThreadKey === archived.key
+                          }
+                          onClick={() => void restoreThread(archived)}
+                        >
+                          {thread.restoring || restoringThreadKey === archived.key ? "Restoring…" : "Restore"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </section>
           )}
@@ -452,18 +496,18 @@ export function App() {
           onConfirm={() => void confirmPaneAction()}
         />
       )}
-      {creationProject && snapshot && (
+      {creationTarget && (
         <ThreadCreationDialog
-          project={creationProject}
-          worktrees={(snapshot.worktrees ?? []).filter(
-            (worktree) => worktree.project_id === creationProject.project_id && !worktree.removed_at,
+          project={creationTarget.project}
+          worktrees={(creationTarget.snapshot.worktrees ?? []).filter(
+            (worktree) => worktree.project_id === creationTarget.project.project_id && !worktree.removed_at,
           )}
           error={creationError}
           pending={creationPending}
           defaultAgent={settings.defaultAgent}
           defaultSkipPermissions={settings.defaultSkipPermissions}
           onCancel={() => {
-            setCreationProject(undefined);
+            setCreationTarget(undefined);
             setCreationError(undefined);
           }}
           onCreate={(request) => void createThread(request)}

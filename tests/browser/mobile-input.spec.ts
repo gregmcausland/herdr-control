@@ -45,11 +45,15 @@ async function mockTerminal(
   sent: Array<{ type: string; data?: string; key?: string }>,
   opened: string[] = [],
   connections: WebSocketRoute[] = [],
+  sessionConnections: string[] = [],
 ) {
-  await page.route("**/api/session/events", (route) => route.fulfill({
-    contentType: "text/event-stream",
-    body: `data: ${JSON.stringify({ status: "live", revision: 1, snapshot })}\n\n`,
-  }));
+  await page.route("**/api/session/events", (route) => {
+    sessionConnections.push(route.request().url());
+    return route.fulfill({
+      contentType: "text/event-stream",
+      body: `data: ${JSON.stringify({ status: "live", revision: 1, snapshot })}\n\n`,
+    });
+  });
   await page.routeWebSocket(/\/api\/terminal/, (socket) => {
     opened.push(socket.url());
     connections.push(socket);
@@ -66,15 +70,19 @@ async function openTerminal(
   const page = await context.newPage();
   await mockTerminal(page, sent, opened);
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
-  await page.getByRole("button", { name: "Open Test pane" }).click();
+  await page.getByRole("button", { name: "Open Test pane on Custom host" }).click();
   await expect.poll(() => decodeURIComponent(new URL(page.url()).pathname)).toBe("/threads/thread-test");
   await expect(page.locator(".terminal-header small")).toHaveText("Control");
   await expect.poll(() => sent.some((message) => message.type === "view")).toBe(true);
   return page;
 }
 
-async function setPageVisibility(page: Page, visibility: DocumentVisibilityState) {
-  await page.evaluate((nextVisibility) => {
+async function setPageVisibility(
+  page: Page,
+  visibility: DocumentVisibilityState,
+  dispatch = true,
+) {
+  await page.evaluate(({ nextVisibility, shouldDispatch }) => {
     const testWindow = window as typeof window & { testVisibility?: DocumentVisibilityState };
     testWindow.testVisibility = nextVisibility;
     Object.defineProperty(document, "visibilityState", {
@@ -85,20 +93,20 @@ async function setPageVisibility(page: Page, visibility: DocumentVisibilityState
       configurable: true,
       get: () => testWindow.testVisibility === "hidden",
     });
-    document.dispatchEvent(new Event("visibilitychange"));
-  }, visibility);
+    if (shouldDispatch) document.dispatchEvent(new Event("visibilitychange"));
+  }, { nextVisibility: visibility, shouldDispatch: dispatch });
 }
 
 test("restores a routed terminal after refresh and follows browser history", async ({ page }) => {
   test.skip(!clientUrl, "A running browser client is required");
   await mockTerminal(page, []);
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
-  await page.getByRole("button", { name: "Open Test pane" }).click();
+  await page.getByRole("button", { name: "Open Test pane on Custom host" }).click();
 
   await page.reload();
   await expect(page.locator(".terminal-heading strong")).toHaveText("Test pane");
   await page.goBack();
-  await expect(page.getByRole("button", { name: "Open Test pane" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open Test pane on Custom host" })).toBeVisible();
 });
 
 test("reclaims uncontested control when returning to a backgrounded terminal", async ({ page }) => {
@@ -107,7 +115,7 @@ test("reclaims uncontested control when returning to a backgrounded terminal", a
   const opened: string[] = [];
   await mockTerminal(page, sent, opened);
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
-  await page.getByRole("button", { name: "Open Test pane" }).click();
+  await page.getByRole("button", { name: "Open Test pane on Custom host" }).click();
   await expect.poll(() => opened.length).toBe(1);
 
   await setPageVisibility(page, "hidden");
@@ -120,13 +128,35 @@ test("reclaims uncontested control when returning to a backgrounded terminal", a
   await expect(page.locator(".terminal-overlay")).toHaveCount(0);
 });
 
+test("replaces connections left open by mobile suspension", async ({ page }) => {
+  test.skip(!clientUrl, "A running browser client is required");
+  const sent: Array<{ type: string }> = [];
+  const opened: string[] = [];
+  const sessionConnections: string[] = [];
+  await mockTerminal(page, sent, opened, [], sessionConnections);
+  await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
+  await page.getByRole("button", { name: "Open Test pane on Custom host" }).click();
+  await expect.poll(() => opened.length).toBe(1);
+  const feedsBeforeResume = sessionConnections.length;
+
+  // Mobile browsers can freeze the page before its hidden event runs. The old
+  // WebSocket then still reports OPEN when the visible event arrives.
+  await setPageVisibility(page, "hidden", false);
+  await setPageVisibility(page, "visible");
+
+  await expect.poll(() => sent.some((message) => message.type === "release")).toBe(true);
+  await expect.poll(() => opened.length).toBe(2);
+  await expect.poll(() => sessionConnections.length).toBeGreaterThan(feedsBeforeResume);
+  await expect(page.locator(".terminal-header small")).toHaveText("Control");
+});
+
 test("reclaims uncontested control after the terminal bridge disconnects", async ({ page }) => {
   test.skip(!clientUrl, "A running browser client is required");
   const opened: string[] = [];
   const connections: WebSocketRoute[] = [];
   await mockTerminal(page, [], opened, connections);
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
-  await page.getByRole("button", { name: "Open Test pane" }).click();
+  await page.getByRole("button", { name: "Open Test pane on Custom host" }).click();
   await expect.poll(() => connections.length).toBe(1);
 
   await connections[0].close({ code: 1012, reason: "Bridge restarted" });

@@ -44,7 +44,7 @@ export function groupPanesByProject(
   return groups.sort(compareProjectRecency);
 }
 
-function compareProjectRecency(first: ProjectPaneGroup, second: ProjectPaneGroup): number {
+export function compareProjectRecency(first: ProjectPaneGroup, second: ProjectPaneGroup): number {
   const firstCurrentRun = latestCurrentRunAt(first.panes);
   const secondCurrentRun = latestCurrentRunAt(second.panes);
   if (firstCurrentRun !== undefined && secondCurrentRun === undefined) return -1;
