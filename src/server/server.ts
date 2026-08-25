@@ -32,6 +32,13 @@ import {
   ThreadNotFoundError,
   ThreadNotRestorableError,
 } from "./threads.js";
+import {
+  PaneNotDeletableError,
+  PaneNotFoundError,
+  ProjectNotFoundError,
+  ThreadLifecycleService,
+  WorktreeNotFoundError,
+} from "./thread-lifecycle.js";
 
 const MIME_TYPES: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
@@ -62,6 +69,11 @@ export function createControlServer(
     1_000,
     50,
     (snapshot) => threads.reconcile(snapshot),
+  );
+  const threadLifecycle = new ThreadLifecycleService(
+    threads,
+    herdr,
+    () => session.requestRefresh?.(),
   );
   const hosts = providedHosts ?? new ControlHostStore({
     path: config.statePath,
@@ -145,40 +157,15 @@ export function createControlServer(
     if (request.method === "POST" && creationProjectId) {
       try {
         const creation = threadCreationRequest(await readJsonBody(request, 128 * 1024));
-        const project = threads.getProject(creationProjectId);
-        if (!project) {
-          sendJson(response, 404, { error: `Project ${creationProjectId} was not found` });
-          return;
-        }
-        const projectWorktrees = threads.listWorktrees().filter(
-          (worktree) => worktree.project_id === project.project_id && !worktree.removed_at,
-        );
-        const selectedWorktree = creation.location.kind === "worktree"
-          ? threads.getWorktree(creation.location.worktree_id)
-          : undefined;
-        if (
-          creation.location.kind === "worktree"
-          && (!selectedWorktree || selectedWorktree.project_id !== project.project_id || selectedWorktree.removed_at)
-        ) {
-          sendJson(response, 404, { error: "The selected Worktree was not found in this Project" });
-          return;
-        }
-        const projectWorkspaceId = projectWorktrees.find(
-          (worktree) => worktree.checkout_path === project.repo_root && worktree.runtime_workspace_id,
-        )?.runtime_workspace_id ?? projectWorktrees.find(
-          (worktree) => worktree.runtime_workspace_id,
-        )?.runtime_workspace_id;
-        const result = await herdr.createThread({
-          project,
-          projectWorkspaceId,
-          worktree: selectedWorktree,
-          creation,
-        });
-        session.requestRefresh?.();
+        const result = await threadLifecycle.create(creationProjectId, creation);
         sendJson(response, 201, { thread: result });
       } catch (error) {
-        const invalid = error instanceof RequestBodyError;
-        sendJson(response, invalid ? 400 : 502, {
+        const status = error instanceof RequestBodyError
+          ? 400
+          : error instanceof ProjectNotFoundError || error instanceof WorktreeNotFoundError
+            ? 404
+            : 502;
+        sendJson(response, status, {
           error: error instanceof Error ? error.message : "Unable to create Thread",
         });
       }
@@ -188,9 +175,8 @@ export function createControlServer(
     if (request.method === "POST" && threadAction) {
       try {
         const thread = threadAction.action === "archive"
-          ? await threads.archive(threadAction.threadId)
-          : await threads.restore(threadAction.threadId);
-        session.requestRefresh?.();
+          ? await threadLifecycle.archive(threadAction.threadId)
+          : await threadLifecycle.restore(threadAction.threadId);
         sendJson(response, 200, { thread });
       } catch (error) {
         const status = error instanceof ThreadNotFoundError
@@ -207,10 +193,7 @@ export function createControlServer(
     const threadId = threadIdFromPath(url.pathname);
     if (request.method === "DELETE" && threadId) {
       try {
-        // A fresh snapshot prevents deleting a Thread whose first session reference just appeared.
-        threads.reconcile(await herdr.snapshot());
-        threads.deleteThread(threadId);
-        session.requestRefresh?.();
+        await threadLifecycle.deleteThread(threadId);
         response.writeHead(204).end();
       } catch (error) {
         const status = error instanceof ThreadNotFoundError
@@ -227,21 +210,15 @@ export function createControlServer(
     const paneId = paneIdFromPath(url.pathname);
     if (request.method === "DELETE" && paneId) {
       try {
-        // Destructive decisions must use current Herdr truth, never the retained stale projection.
-        const snapshot = threads.reconcile(await herdr.snapshot());
-        const pane = snapshot.panes.find((candidate) => candidate.pane_id === paneId);
-        const agentPane = pane?.agent || snapshot.agents?.some((agent) => agent.pane_id === paneId);
-        if (!pane) {
-          sendJson(response, 404, { error: `Pane ${paneId} was not found` });
-        } else if (agentPane) {
-          sendJson(response, 409, { error: "Agent panes must be archived" });
-        } else {
-          threads.deletePane(paneId);
-          session.requestRefresh?.();
-          response.writeHead(204).end();
-        }
+        await threadLifecycle.deletePane(paneId);
+        response.writeHead(204).end();
       } catch (error) {
-        sendJson(response, 502, { error: error instanceof Error ? error.message : "Unable to delete pane" });
+        const status = error instanceof PaneNotFoundError
+          ? 404
+          : error instanceof PaneNotDeletableError
+            ? 409
+            : 502;
+        sendJson(response, status, { error: error instanceof Error ? error.message : "Unable to delete pane" });
       }
       return;
     }

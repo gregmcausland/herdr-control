@@ -17,7 +17,7 @@ straightforward public project. It records direction, not release dates.
 
 - [ ] **Release groundwork.** Add a licence, security notes, and CI checks. Keep
   the existing host file intact until its entries have migrated.
-- [ ] **Managed installation.** Provide one installation path for the bridge and
+- [x] **Managed installation.** Provide one installation path for the bridge and
   bundled client, with user-level startup, status, logs, updates, and removal.
 - [x] **Runtime Control Host management.** Store the Home bridge's Control Host
   list in its local database and provide add, rename, remove, and health-check
@@ -36,9 +36,9 @@ straightforward public project. It records direction, not release dates.
 
 ## Architecture follow-ups
 
-- [ ] Move Thread creation and deletion policy out of HTTP routes and deepen the
+- [x] Move Thread creation and deletion policy out of HTTP routes and deepen the
   existing Thread lifecycle module.
-- [ ] Concentrate route, request, pending, stale-state, and modal transitions in
+- [x] Concentrate route, request, pending, stale-state, and modal transitions in
   a client orchestration-state module, leaving React focused on rendering.
 
 ## Possible later work

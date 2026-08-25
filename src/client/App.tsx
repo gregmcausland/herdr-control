@@ -1,69 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import type { PaneInfo, ProjectInfo, SessionSnapshot, ThreadCreationRequest, ThreadInfo } from "../shared/protocol";
+import type { PaneInfo } from "../shared/protocol";
 import { TerminalView } from "./TerminalView";
 import { PlusIcon, ThreadCreationDialog } from "./ThreadCreationDialog";
 import { SettingsDialog, SettingsIcon } from "./SettingsDialog";
 import { ControlHostsDialog, HostsIcon } from "./ControlHostsDialog";
 import { applyFontSettings, readAppSettings, storeAppSettings } from "./settings";
-import { normalizeHost, resolveInitialHost, type ControlHost } from "./hosts";
-import { useControlHosts } from "./control-hosts";
-import {
-  archivedThreadsAcrossHosts,
-  projectsAcrossHosts,
-  type HostedArchivedThread,
-} from "./hosted-projects";
-import { useLiveSessions } from "./live-session";
 import { applyAppTheme } from "./theme";
 import { WorkingActivity } from "./WorkingActivity";
-import {
-  homePath,
-  panePath,
-  searchForHost,
-  terminalRouteFromPath,
-  threadPath,
-  type TerminalRoute,
-} from "./routes";
 import { workingDuration } from "./working-duration";
-
-const STORAGE_KEY = "herdr-control-host";
-
-type PaneAction = {
-  kind: "archive" | "delete";
-  host: ControlHost;
-  pane: PaneInfo;
-  thread?: ThreadInfo;
-};
-
-type CreationTarget = {
-  host: ControlHost;
-  project: ProjectInfo;
-  snapshot: SessionSnapshot;
-};
-
-type TerminalSelection = {
-  hostUrl: string;
-  route: TerminalRoute;
-};
-
-function initialHost(): string {
-  return resolveInitialHost(
-    window.location.search,
-    localStorage.getItem(STORAGE_KEY),
-    window.location.origin,
-  );
-}
-
-function homeBridgeUrl(): string {
-  const origin = normalizeHost(window.location.origin);
-  return /^(localhost|127\.0\.0\.1)$/.test(window.location.hostname) && window.location.port === "5173"
-    ? initialHost()
-    : origin;
-}
-
-function terminalSelectionFromLocation(): TerminalSelection | undefined {
-  const route = terminalRouteFromPath(window.location.pathname);
-  return route ? { route, hostUrl: initialHost() } : undefined;
-}
+import { useControlOrchestration, type PaneAction } from "./orchestration-state";
 
 function feedStatusLabel(status: "connecting" | "live" | "stale"): string {
   return status === "live" ? "Live" : status === "stale" ? "Reconnecting" : "Connecting";
@@ -174,36 +119,26 @@ function WorktreeIcon() {
 }
 
 export function App() {
-  const [preferredHostUrl, setPreferredHostUrl] = useState(initialHost);
-  const homeBridge = homeBridgeUrl();
-  const hostConfiguration = useControlHosts(homeBridge, preferredHostUrl);
-  const hosts = hostConfiguration.hosts;
-  const [terminalSelection, setTerminalSelection] = useState<TerminalSelection | undefined>(
-    terminalSelectionFromLocation,
-  );
+  const control = useControlOrchestration();
+  const {
+    hostConfiguration,
+    liveSessions,
+    projectGroups,
+    archivedThreads,
+    activePane,
+    terminalSelection,
+    settingsOpen,
+    hostsOpen,
+    paneAction,
+    pendingAction,
+    actionError,
+    restoringThreadKey,
+    creationTarget,
+    creationPending,
+    creationError,
+  } = control;
   const [settings, setSettings] = useState(readAppSettings);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [hostsOpen, setHostsOpen] = useState(false);
-  const [paneAction, setPaneAction] = useState<PaneAction>();
-  const [pendingAction, setPendingAction] = useState(false);
-  const [actionError, setActionError] = useState<string>();
-  const [restoringThreadKey, setRestoringThreadKey] = useState<string>();
-  const [creationTarget, setCreationTarget] = useState<CreationTarget>();
-  const [creationPending, setCreationPending] = useState(false);
-  const [creationError, setCreationError] = useState<string>();
   const [clock, setClock] = useState(Date.now);
-  const liveSessions = useLiveSessions(hosts);
-  const projectGroups = projectsAcrossHosts(liveSessions);
-  const archivedThreads = archivedThreadsAcrossHosts(liveSessions);
-  const activeFeed = terminalSelection
-    ? liveSessions.find((feed) => feed.host.url === terminalSelection.hostUrl)
-    : undefined;
-  const activeSnapshot = activeFeed?.snapshot;
-  const activePane = terminalSelection?.route.kind === "thread"
-    ? activeSnapshot?.panes.find((pane) => pane.thread_id === terminalSelection.route.id)
-    : terminalSelection?.route.kind === "pane"
-      ? activeSnapshot?.panes.find((pane) => pane.pane_id === terminalSelection.route.id)
-      : undefined;
   const hasWorkingDuration = liveSessions.some((feed) => feed.snapshot?.panes.some(
     (pane) => pane.agent_status === "working" && pane.working_started_at,
   ));
@@ -221,113 +156,6 @@ export function App() {
     return () => window.clearInterval(interval);
   }, [hasWorkingDuration]);
 
-  useEffect(() => {
-    const followBrowserHistory = () => setTerminalSelection(terminalSelectionFromLocation());
-    window.addEventListener("popstate", followBrowserHistory);
-    return () => window.removeEventListener("popstate", followBrowserHistory);
-  }, []);
-
-  useEffect(() => {
-    if (
-      hostConfiguration.status !== "database"
-      || terminalSelection
-      || new URLSearchParams(window.location.search).has("host")
-      || hostConfiguration.storedHosts.some((host) => host.url === preferredHostUrl)
-      || preferredHostUrl === homeBridge
-    ) return;
-    localStorage.removeItem(STORAGE_KEY);
-    setPreferredHostUrl(homeBridge);
-  }, [homeBridge, hostConfiguration.status, hostConfiguration.storedHosts, preferredHostUrl, terminalSelection]);
-
-  useEffect(() => {
-    if (!terminalSelection || !activeSnapshot || activePane) return;
-    window.history.replaceState(null, "", homePath(window.location.search));
-    setTerminalSelection(undefined);
-  }, [activePane, activeSnapshot, terminalSelection]);
-
-  function openPane(host: ControlHost, pane: PaneInfo) {
-    const route: TerminalRoute = pane.thread_id
-      ? { kind: "thread", id: pane.thread_id }
-      : { kind: "pane", id: pane.pane_id };
-    const search = searchForHost(host.url, window.location.search);
-    const path = route.kind === "thread"
-      ? threadPath(route.id, search)
-      : panePath(route.id, search);
-    localStorage.setItem(STORAGE_KEY, host.url);
-    setPreferredHostUrl(host.url);
-    window.history.pushState(null, "", path);
-    setTerminalSelection({ route, hostUrl: host.url });
-  }
-
-  function returnHome() {
-    window.history.pushState(null, "", homePath(window.location.search));
-    setTerminalSelection(undefined);
-  }
-
-  async function sendAction(hostUrl: string, path: string, method: "POST" | "DELETE"): Promise<void> {
-    const response = await fetch(`${hostUrl}${path}`, { method });
-    const body = await response.json().catch(() => undefined) as { error?: string } | undefined;
-    if (!response.ok) throw new Error(body?.error ?? `Request failed with status ${response.status}`);
-  }
-
-  async function confirmPaneAction() {
-    if (!paneAction) return;
-    setPendingAction(true);
-    setActionError(undefined);
-    try {
-      const path = paneAction.kind === "archive"
-        ? `/api/threads/${encodeURIComponent(paneAction.pane.thread_id!)}/archive`
-        : paneAction.thread
-          ? `/api/threads/${encodeURIComponent(paneAction.thread.thread_id)}`
-          : `/api/panes/${encodeURIComponent(paneAction.pane.pane_id)}`;
-      await sendAction(paneAction.host.url, path, paneAction.kind === "archive" ? "POST" : "DELETE");
-      setPaneAction(undefined);
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : `Unable to ${paneAction.kind} pane`);
-    } finally {
-      setPendingAction(false);
-    }
-  }
-
-  async function restoreThread(archived: HostedArchivedThread) {
-    setRestoringThreadKey(archived.key);
-    setActionError(undefined);
-    try {
-      await sendAction(
-        archived.host.url,
-        `/api/threads/${encodeURIComponent(archived.thread.thread_id)}/restore`,
-        "POST",
-      );
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Unable to restore Thread");
-    } finally {
-      setRestoringThreadKey(undefined);
-    }
-  }
-
-  async function createThread(request: ThreadCreationRequest) {
-    if (!creationTarget) return;
-    setCreationPending(true);
-    setCreationError(undefined);
-    try {
-      const response = await fetch(
-        `${creationTarget.host.url}/api/projects/${encodeURIComponent(creationTarget.project.project_id)}/threads`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(request),
-        },
-      );
-      const body = await response.json().catch(() => undefined) as { error?: string } | undefined;
-      if (!response.ok) throw new Error(body?.error ?? `Request failed with status ${response.status}`);
-      setCreationTarget(undefined);
-    } catch (error) {
-      setCreationError(error instanceof Error ? error.message : "Unable to create Thread");
-    } finally {
-      setCreationPending(false);
-    }
-  }
-
   if (activePane) {
     return (
       <TerminalView
@@ -337,7 +165,7 @@ export function App() {
         fontFamily={settings.terminalFontFamily}
         fontSize={settings.terminalFontSize}
         cursorBlink={settings.terminalCursorBlink}
-        onBack={returnHome}
+        onBack={control.returnHome}
       />
     );
   }
@@ -363,7 +191,7 @@ export function App() {
             type="button"
             aria-label="Manage Control Hosts"
             title="Manage Control Hosts"
-            onClick={() => setHostsOpen(true)}
+            onClick={control.openHosts}
           >
             <HostsIcon />
           </button>
@@ -372,7 +200,7 @@ export function App() {
             type="button"
             aria-label="Settings"
             title="Settings"
-            onClick={() => setSettingsOpen(true)}
+            onClick={control.openSettings}
           >
             <SettingsIcon />
           </button>
@@ -414,10 +242,7 @@ export function App() {
                       disabled={feedStatus !== "live"}
                       aria-label={`New Thread in ${project.name} on ${host.label}`}
                       title={`New Thread in ${project.name} on ${host.label}`}
-                      onClick={() => {
-                        setCreationError(undefined);
-                        setCreationTarget({ host, project, snapshot });
-                      }}
+                      onClick={() => control.openCreation({ host, project, snapshot })}
                     >
                       <PlusIcon />
                     </button>
@@ -432,7 +257,7 @@ export function App() {
                         className={`pane ${pane.agent_status === "working" ? "working" : ""}`}
                         title={`${host.label} · ${pane.pane_id}`}
                         aria-label={`Open ${paneTitle(pane)} on ${host.label}`}
-                        onClick={() => openPane(host, pane)}
+                        onClick={() => control.openPane(host, pane)}
                       >
                         {pane.agent_status === "working" && <WorkingActivity themeId={settings.theme} />}
                         <span
@@ -457,10 +282,7 @@ export function App() {
                         disabled={feedStatus !== "live"}
                         aria-label={`${kind === "archive" ? "Archive" : "Delete"} ${paneTitle(pane)} on ${host.label}`}
                         title={kind === "archive" ? "Archive thread" : thread ? "Delete thread" : "Delete pane"}
-                        onClick={() => {
-                          setActionError(undefined);
-                          setPaneAction({ kind, host, pane, thread });
-                        }}
+                        onClick={() => control.openPaneAction({ kind, host, pane, thread })}
                       >
                         {kind === "archive" ? <ArchiveIcon /> : <TrashIcon />}
                       </button>
@@ -492,7 +314,7 @@ export function App() {
                             || thread.restoring
                             || restoringThreadKey === archived.key
                           }
-                          onClick={() => void restoreThread(archived)}
+                          onClick={() => void control.restoreThread(archived)}
                         >
                           {thread.restoring || restoringThreadKey === archived.key ? "Restoring…" : "Restore"}
                         </button>
@@ -508,10 +330,10 @@ export function App() {
       {settingsOpen && (
         <SettingsDialog
           settings={settings}
-          onCancel={() => setSettingsOpen(false)}
+          onCancel={control.closeSettings}
           onSave={(nextSettings) => {
             setSettings(nextSettings);
-            setSettingsOpen(false);
+            control.closeSettings();
           }}
         />
       )}
@@ -519,7 +341,7 @@ export function App() {
         <ControlHostsDialog
           configuration={hostConfiguration}
           liveStatus={new Map(liveSessions.map((feed) => [feed.host.url, feed.status]))}
-          onClose={() => setHostsOpen(false)}
+          onClose={control.closeHosts}
         />
       )}
       {paneAction && (
@@ -527,11 +349,8 @@ export function App() {
           action={paneAction}
           error={actionError}
           pending={pendingAction}
-          onCancel={() => {
-            setPaneAction(undefined);
-            setActionError(undefined);
-          }}
-          onConfirm={() => void confirmPaneAction()}
+          onCancel={control.cancelPaneAction}
+          onConfirm={() => void control.confirmPaneAction()}
         />
       )}
       {creationTarget && (
@@ -544,11 +363,8 @@ export function App() {
           pending={creationPending}
           defaultAgent={settings.defaultAgent}
           defaultSkipPermissions={settings.defaultSkipPermissions}
-          onCancel={() => {
-            setCreationTarget(undefined);
-            setCreationError(undefined);
-          }}
-          onCreate={(request) => void createThread(request)}
+          onCancel={control.cancelCreation}
+          onCreate={(request) => void control.createThread(request)}
         />
       )}
     </main>
