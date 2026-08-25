@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ControlHost, StoredControlHost } from "../shared/control-hosts";
 import { configuredHosts, hostOptions } from "./hosts";
 
@@ -41,9 +41,13 @@ export function useControlHosts(
   }, [homeBridgeUrl]);
 
   const savedHosts = status === "database" ? storedHosts : configuredHosts;
+  const hosts = useMemo(
+    () => hostOptions(activeHostUrl, savedHosts),
+    [activeHostUrl, savedHosts],
+  );
 
   return {
-    hosts: hostOptions(activeHostUrl, savedHosts),
+    hosts,
     storedHosts,
     status,
     message,
