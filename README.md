@@ -91,15 +91,32 @@ Requirements:
 - Herdr 0.8 or newer with terminal session control support
 - A running Herdr instance
 
-Install dependencies, build the client and bridge, then start Control:
+Clone the repository and install the managed user service:
 
 ```bash
-npm install
-npm run build
-npm start
+git clone https://github.com/gregmcausland/herdr-control.git
+cd herdr-control
+npm run control -- install
 ```
 
 Open `http://127.0.0.1:4173`.
+
+The installer builds Control and starts `herdr-control.service` for the current
+Linux user. It preserves an existing service's Control environment settings and
+does not replace the state database.
+
+Manage the service from the checkout:
+
+```bash
+npm run control -- status
+npm run control -- logs
+npm run control -- update
+npm run control -- restart
+npm run control -- remove
+```
+
+Removal stops and removes the user service but keeps configuration and database
+files. The managed path currently supports Linux with systemd user services.
 
 Control connects to every saved Control Host and shows their Projects in one
 view. Each Project identifies its owning machine.

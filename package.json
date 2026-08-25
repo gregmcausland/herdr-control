@@ -11,8 +11,9 @@
     "build:client": "vite build",
     "build:server": "tsc -p tsconfig.server.json",
     "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json --noEmit",
-    "test": "vitest run src",
+    "test": "vitest run src scripts",
     "test:browser": "playwright test",
+    "control": "node scripts/herdr-control.mjs",
     "validate:host-migration": "npm run build:server && node scripts/validate-host-migration.mjs",
     "start": "node dist/server/server/index.js"
   },
