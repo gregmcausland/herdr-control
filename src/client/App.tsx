@@ -180,7 +180,7 @@ export function App() {
               <span
                 className={`connection-status host-status ${feed.status}`}
                 key={feed.host.url}
-                title={`${feed.host.label}: ${feedStatusLabel(feed.status)}${feed.snapshot ? ` · Herdr ${feed.snapshot.version}` : ""}`}
+                title={`${feed.host.label}: ${feedStatusLabel(feed.status)}${feed.snapshot ? ` · Herdr ${feed.snapshot.version}` : ""}${feed.message ? ` · ${feed.message}` : ""}`}
               >
                 {feed.host.label}
               </span>
@@ -210,9 +210,18 @@ export function App() {
       {projectGroups.length === 0 && liveSessions.every((feed) => feed.status === "connecting") && (
         <p className="notice">Connecting to configured Herdr servers…</p>
       )}
-      {liveSessions.filter((feed) => feed.status === "stale" && !feed.snapshot).map((feed) => (
+      {liveSessions.filter((feed) => (
+        feed.status === "stale"
+        && !feed.snapshot
+        && !feed.message?.startsWith("Unsupported Herdr protocol")
+      )).map((feed) => (
         <p className="notice error" key={feed.host.url}>
           <strong>{feed.host.label}:</strong> {feed.message ?? "Unable to connect to bridge"}
+        </p>
+      ))}
+      {liveSessions.filter((feed) => feed.message?.startsWith("Unsupported Herdr protocol")).map((feed) => (
+        <p className="notice error" key={`${feed.host.url}:compatibility`}>
+          <strong>{feed.host.label}:</strong> {feed.message}
         </p>
       ))}
       {!paneAction && !creationTarget && actionError && <p className="notice error">{actionError}</p>}
@@ -340,7 +349,7 @@ export function App() {
       {hostsOpen && (
         <ControlHostsDialog
           configuration={hostConfiguration}
-          liveStatus={new Map(liveSessions.map((feed) => [feed.host.url, feed.status]))}
+          liveState={new Map(liveSessions.map((feed) => [feed.host.url, feed]))}
           onClose={control.closeHosts}
         />
       )}

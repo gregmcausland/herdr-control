@@ -23,7 +23,7 @@ straightforward public project. It records direction, not release dates.
   list in its local database and provide add, rename, remove, and health-check
   actions in Control. Follow the [host configuration migration](docs/host-configuration-migration.md)
   before removing `hosts.json`.
-- [ ] **Multi-host hardening.** Report protocol incompatibility per machine,
+- [x] **Multi-host hardening.** Report protocol incompatibility per machine,
   improve offline recovery, and run repeatable two-host browser coverage.
 
 ## Public release

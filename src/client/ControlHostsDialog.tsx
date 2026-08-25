@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ControlHost, StoredControlHost } from "../shared/control-hosts";
 import type { ControlHostConfiguration } from "./control-hosts";
+import type { HostSessionFeed } from "./live-session";
 
 type HostDraft = Pick<ControlHost, "label" | "url">;
 
 export function ControlHostsDialog({
   configuration,
-  liveStatus,
+  liveState,
   onClose,
 }: {
   configuration: ControlHostConfiguration;
-  liveStatus: ReadonlyMap<string, "connecting" | "live" | "stale">;
+  liveState: ReadonlyMap<string, Pick<HostSessionFeed, "status" | "message" | "snapshot">>;
   onClose(): void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -101,12 +102,15 @@ export function ControlHostsDialog({
       <div className="host-editor-list">
         {configuration.storedHosts.map((host) => {
           const draft = drafts[host.host_id] ?? host;
-          const status = liveStatus.get(host.url) ?? "connecting";
+          const feed = liveState.get(host.url);
+          const status = feed?.status ?? "connecting";
           return (
             <form className="host-editor" key={host.host_id} onSubmit={(event) => void save(event, host)}>
               <div className="host-editor-heading">
                 <span className={`connection-status ${status}`}>{status === "live" ? "Live" : status === "stale" ? "Offline" : "Connecting"}</span>
-                {checks[host.host_id] && <small>{checks[host.host_id]}</small>}
+                {(checks[host.host_id] || feed?.message) && (
+                  <small>{checks[host.host_id] ?? feed?.message}</small>
+                )}
               </div>
               <label>
                 <span>Name</span>

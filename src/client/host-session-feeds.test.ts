@@ -148,4 +148,31 @@ describe("host session feeds", () => {
       snapshot: { version: "second" },
     });
   });
+
+  it("reports one incompatible host without replacing its last compatible snapshot", () => {
+    const feeds = fakeFeeds();
+    let current: Readonly<Record<string, SessionFeedState>> = {};
+    connectHostSessionFeeds(hosts, (states) => current = states, feeds.open);
+
+    const first = feeds.sources.get("first.example")![0];
+    const second = feeds.sources.get("second.example")![0];
+    first.emit({ status: "live", revision: 1, snapshot: snapshot("first") });
+    second.emit({ status: "live", revision: 1, snapshot: snapshot("second") });
+    first.emit({
+      status: "live",
+      revision: 2,
+      snapshot: { ...snapshot("future"), protocol: 21 },
+    });
+
+    expect(current[hosts[0].url]).toMatchObject({
+      status: "stale",
+      revision: 2,
+      message: "Unsupported Herdr protocol 21; this Control release supports 19-20",
+      snapshot: { version: "first", protocol: 19 },
+    });
+    expect(current[hosts[1].url]).toMatchObject({
+      status: "live",
+      snapshot: { version: "second" },
+    });
+  });
 });

@@ -1,4 +1,5 @@
 import type { SessionFeedState } from "../shared/protocol";
+import { herdrProtocolCompatibilityMessage } from "../shared/compatibility";
 import type { ControlHost } from "./hosts";
 
 const INITIAL_STATE: SessionFeedState = { status: "connecting", revision: 0 };
@@ -48,6 +49,18 @@ export function connectHostSessionFeeds(
           if (sourceGeneration !== generation) return;
           const incoming = parseSessionFeedState(data);
           if (incoming) {
+            const compatibilityMessage = incoming.snapshot
+              ? herdrProtocolCompatibilityMessage(incoming.snapshot.protocol)
+              : undefined;
+            if (compatibilityMessage) {
+              update(host.url, (current) => ({
+                ...current,
+                status: "stale",
+                revision: incoming.revision,
+                message: compatibilityMessage,
+              }));
+              return;
+            }
             update(host.url, () => incoming);
             return;
           }

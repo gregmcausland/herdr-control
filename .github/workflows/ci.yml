@@ -23,3 +23,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - if: matrix.node == 24
+        run: npx playwright install --with-deps chromium
+      - if: matrix.node == 24
+        run: npm run test:browser -- tests/browser/multi-host.spec.ts
