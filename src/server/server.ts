@@ -3,6 +3,9 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { extname, resolve, sep } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import type {
+  ControlHost,
+} from "../shared/control-hosts.js";
+import type {
   TerminalClientMessage,
   TerminalMode,
   TerminalServerMessage,
@@ -17,6 +20,12 @@ import { HerdrAdapter } from "./herdr.js";
 import { HerdrSocketSource } from "./herdr-socket.js";
 import { LiveSession, type SessionStateFeed } from "./live-session.js";
 import { isOriginAllowed, type ServerConfig } from "./config.js";
+import {
+  ControlHostConflictError,
+  ControlHostNotFoundError,
+  ControlHostStore,
+  readLegacyControlHosts,
+} from "./control-hosts.js";
 import {
   ThreadManager,
   ThreadNotDeletableError,
@@ -41,6 +50,7 @@ export function createControlServer(
   herdr = new HerdrAdapter(config.herdrBinary, config.herdrSocketPath),
   providedSession?: SessionStateFeed,
   providedThreads?: ThreadManager,
+  providedHosts?: ControlHostStore,
 ) {
   const threads = providedThreads ?? new ThreadManager({
     path: config.statePath,
@@ -53,6 +63,10 @@ export function createControlServer(
     50,
     (snapshot) => threads.reconcile(snapshot),
   );
+  const hosts = providedHosts ?? new ControlHostStore({
+    path: config.statePath,
+    legacyHosts: readLegacyControlHosts(config.legacyHostsPath),
+  });
   const clipboardImages = new ClipboardImageStore();
   const server = createServer(async (request, response) => {
     setCorsHeaders(request, response, config.allowedOrigins);
@@ -69,6 +83,38 @@ export function createControlServer(
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
     if (request.method === "GET" && url.pathname === "/api/health") {
       sendJson(response, 200, { ok: true });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/control-hosts") {
+      sendJson(response, 200, { hosts: hosts.list() });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/control-hosts") {
+      try {
+        const host = hosts.add(controlHostInput(await readJsonBody(request, 16 * 1024)));
+        sendJson(response, 201, { host });
+      } catch (error) {
+        sendControlHostError(response, error);
+      }
+      return;
+    }
+    const controlHostId = controlHostIdFromPath(url.pathname);
+    if (controlHostId && request.method === "PATCH") {
+      try {
+        const host = hosts.update(controlHostId, controlHostInput(await readJsonBody(request, 16 * 1024)));
+        sendJson(response, 200, { host });
+      } catch (error) {
+        sendControlHostError(response, error);
+      }
+      return;
+    }
+    if (controlHostId && request.method === "DELETE") {
+      try {
+        hosts.delete(controlHostId);
+        response.writeHead(204).end();
+      } catch (error) {
+        sendControlHostError(response, error);
+      }
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/snapshot") {
@@ -279,6 +325,7 @@ export function createControlServer(
   server.on("close", () => {
     session.close();
     threads.close();
+    hosts.close();
   });
 
   return server;
@@ -344,7 +391,7 @@ function setCorsHeaders(request: IncomingMessage, response: ServerResponse, allo
   if (origin && isOriginAllowed(request, allowedOrigins)) {
     response.setHeader("Access-Control-Allow-Origin", origin);
     response.setHeader("Vary", "Origin");
-    response.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+    response.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
     response.setHeader("Access-Control-Allow-Headers", "Content-Type");
   }
 }
@@ -368,6 +415,11 @@ function threadIdFromPath(pathname: string): string | undefined {
 
 function paneIdFromPath(pathname: string): string | undefined {
   const match = /^\/api\/panes\/([^/]+)$/.exec(pathname);
+  return match ? decodeIdentifier(match[1]) : undefined;
+}
+
+function controlHostIdFromPath(pathname: string): string | undefined {
+  const match = /^\/api\/control-hosts\/([^/]+)$/.exec(pathname);
   return match ? decodeIdentifier(match[1]) : undefined;
 }
 
@@ -427,6 +479,29 @@ async function readJsonBody(request: IncomingMessage, maxBytes: number): Promise
     if (error instanceof SyntaxError) throw new RequestBodyError("Request body must be valid JSON");
     throw error;
   }
+}
+
+function controlHostInput(value: unknown): ControlHost {
+  const input = record(value);
+  return {
+    label: requiredText(input?.label, "Control Host label", 120),
+    url: requiredText(input?.url, "Control Host URL", 2_048),
+  };
+}
+
+function sendControlHostError(response: ServerResponse, error: unknown): void {
+  const status = error instanceof RequestBodyError
+    ? 400
+    : error instanceof ControlHostNotFoundError
+      ? 404
+      : error instanceof ControlHostConflictError
+        ? 409
+        : error instanceof Error && /Control Host (URL|label)/.test(error.message)
+          ? 400
+          : 500;
+  sendJson(response, status, {
+    error: error instanceof Error ? error.message : "Unable to update Control Hosts",
+  });
 }
 
 function threadCreationRequest(value: unknown): ThreadCreationRequest {

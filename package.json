@@ -13,6 +13,7 @@
     "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json --noEmit",
     "test": "vitest run src",
     "test:browser": "playwright test",
+    "validate:host-migration": "npm run build:server && node scripts/validate-host-migration.mjs",
     "start": "node dist/server/server/index.js"
   },
   "dependencies": {

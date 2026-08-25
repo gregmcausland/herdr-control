@@ -3,8 +3,10 @@ import type { PaneInfo, ProjectInfo, SessionSnapshot, ThreadCreationRequest, Thr
 import { TerminalView } from "./TerminalView";
 import { PlusIcon, ThreadCreationDialog } from "./ThreadCreationDialog";
 import { SettingsDialog, SettingsIcon } from "./SettingsDialog";
+import { ControlHostsDialog, HostsIcon } from "./ControlHostsDialog";
 import { applyFontSettings, readAppSettings, storeAppSettings } from "./settings";
-import { hostOptions, resolveInitialHost, type ControlHost } from "./hosts";
+import { normalizeHost, resolveInitialHost, type ControlHost } from "./hosts";
+import { useControlHosts } from "./control-hosts";
 import {
   archivedThreadsAcrossHosts,
   projectsAcrossHosts,
@@ -51,8 +53,11 @@ function initialHost(): string {
   );
 }
 
-function initialHosts(): readonly ControlHost[] {
-  return hostOptions(initialHost());
+function homeBridgeUrl(): string {
+  const origin = normalizeHost(window.location.origin);
+  return /^(localhost|127\.0\.0\.1)$/.test(window.location.hostname) && window.location.port === "5173"
+    ? initialHost()
+    : origin;
 }
 
 function terminalSelectionFromLocation(): TerminalSelection | undefined {
@@ -169,12 +174,16 @@ function WorktreeIcon() {
 }
 
 export function App() {
-  const [hosts] = useState<readonly ControlHost[]>(initialHosts);
+  const [preferredHostUrl, setPreferredHostUrl] = useState(initialHost);
+  const homeBridge = homeBridgeUrl();
+  const hostConfiguration = useControlHosts(homeBridge, preferredHostUrl);
+  const hosts = hostConfiguration.hosts;
   const [terminalSelection, setTerminalSelection] = useState<TerminalSelection | undefined>(
     terminalSelectionFromLocation,
   );
   const [settings, setSettings] = useState(readAppSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [hostsOpen, setHostsOpen] = useState(false);
   const [paneAction, setPaneAction] = useState<PaneAction>();
   const [pendingAction, setPendingAction] = useState(false);
   const [actionError, setActionError] = useState<string>();
@@ -219,6 +228,18 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (
+      hostConfiguration.status !== "database"
+      || terminalSelection
+      || new URLSearchParams(window.location.search).has("host")
+      || hostConfiguration.storedHosts.some((host) => host.url === preferredHostUrl)
+      || preferredHostUrl === homeBridge
+    ) return;
+    localStorage.removeItem(STORAGE_KEY);
+    setPreferredHostUrl(homeBridge);
+  }, [homeBridge, hostConfiguration.status, hostConfiguration.storedHosts, preferredHostUrl, terminalSelection]);
+
+  useEffect(() => {
     if (!terminalSelection || !activeSnapshot || activePane) return;
     window.history.replaceState(null, "", homePath(window.location.search));
     setTerminalSelection(undefined);
@@ -233,6 +254,7 @@ export function App() {
       ? threadPath(route.id, search)
       : panePath(route.id, search);
     localStorage.setItem(STORAGE_KEY, host.url);
+    setPreferredHostUrl(host.url);
     window.history.pushState(null, "", path);
     setTerminalSelection({ route, hostUrl: host.url });
   }
@@ -336,6 +358,15 @@ export function App() {
               </span>
             ))}
           </div>
+          <button
+            className="secondary icon-button hosts-trigger"
+            type="button"
+            aria-label="Manage Control Hosts"
+            title="Manage Control Hosts"
+            onClick={() => setHostsOpen(true)}
+          >
+            <HostsIcon />
+          </button>
           <button
             className="secondary icon-button settings-trigger"
             type="button"
@@ -482,6 +513,13 @@ export function App() {
             setSettings(nextSettings);
             setSettingsOpen(false);
           }}
+        />
+      )}
+      {hostsOpen && (
+        <ControlHostsDialog
+          configuration={hostConfiguration}
+          liveStatus={new Map(liveSessions.map((feed) => [feed.host.url, feed.status]))}
+          onClose={() => setHostsOpen(false)}
         />
       )}
       {paneAction && (

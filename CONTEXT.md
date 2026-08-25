@@ -20,6 +20,14 @@ _Avoid_: Cleaned terminal, parsed TUI
 Control's current interpretation of an authoritative Herdr snapshot, enriched with durable identity, history, and lifecycle intent. It never independently asserts that a Herdr runtime exists.
 _Avoid_: Runtime database, cached truth, Herdr mirror
 
+**Control Host**:
+A saved name and URL for one Herdr Control bridge. It is durable configuration and does not assert that the bridge or its Herdr runtime is currently available.
+_Avoid_: Credential, server, live host
+
+**Home bridge**:
+The Control bridge whose URL serves the browser client and which owns the Control Host list. It is a user-chosen installation, not a hosted Control service.
+_Avoid_: Central server, cloud service, Control Host
+
 **Project**:
 A durable working context for one repository, its Threads, and any related Worktrees. A Project exists whether or not it currently has a Project Runtime or any Worktrees.
 _Avoid_: Workspace, repository, pane group

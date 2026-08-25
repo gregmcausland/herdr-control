@@ -10,24 +10,29 @@ straightforward public project. It records direction, not release dates.
 - [x] Consolidated Project view across multiple configured Herdr machines.
 - [x] Independent per-machine live state, reconnection, and stale-state handling.
 - [x] Central Herdr protocol validation before runtime reconciliation.
+- [x] Private remote access through Tailscale Serve, with Control remaining on
+  the user's machines.
 
 ## Product work
 
+- [ ] **Release groundwork.** Add a licence, security notes, and CI checks. Keep
+  the existing host file intact until its entries have migrated.
 - [ ] **Managed installation.** Provide one installation path for the bridge and
   bundled client, with user-level startup, status, logs, updates, and removal.
-- [ ] **Secure bridge access.** Add simple pairing credentials and authenticate
-  HTTP, SSE, and WebSocket traffic without introducing a full account system.
-- [ ] **Runtime host management.** Replace build-time `hosts.json` configuration
-  with add, rename, remove, pair, and health-check actions in Control.
+- [x] **Runtime Control Host management.** Store the Home bridge's Control Host
+  list in its local database and provide add, rename, remove, and health-check
+  actions in Control. Follow the [host configuration migration](docs/host-configuration-migration.md)
+  before removing `hosts.json`.
 - [ ] **Multi-host hardening.** Report protocol incompatibility per machine,
   improve offline recovery, and run repeatable two-host browser coverage.
 
 ## Public release
 
-- [ ] Remove personal host configuration and provide safe example defaults.
-- [ ] Add the open-source licence, contribution notes, and security guidance.
+- [ ] Complete the host configuration migration, verify every existing Control
+  Host, then remove personal configuration and provide safe defaults.
 - [ ] Publish versioned release artifacts with compatibility information.
-- [ ] Provide a five-minute install, pairing, and first-Thread walkthrough.
+- [ ] Provide a five-minute install, Control Host setup, and first-Thread
+  walkthrough.
 
 ## Architecture follow-ups
 
@@ -39,5 +44,7 @@ straightforward public project. It records direction, not release dates.
 ## Possible later work
 
 - Let Herdr install and manage the companion bridge directly.
+- Add Control-owned authentication only if users need access without Tailscale
+  Serve or another trusted private access layer.
 - Explore one trusted Control bridge connecting to remote Herdr machines over
   SSH, if per-machine installation proves to be a real adoption problem.

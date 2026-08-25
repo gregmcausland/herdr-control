@@ -259,6 +259,10 @@ The state path and directory are private to the service user (`0600` database,
 `0700` newly created directory). Moving the bridge to another account changes
 both database access and clipboard-path visibility.
 
+The same database stores the Home bridge's Control Host list. Before replacing
+legacy `hosts.json` configuration, run `npm run validate:host-migration` against
+an online backup and follow the [host configuration migration](host-configuration-migration.md).
+
 ## Reverse proxy and deployment contract
 
 Remote deployments must preserve both long-lived transports:

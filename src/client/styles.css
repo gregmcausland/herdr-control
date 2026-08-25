@@ -70,6 +70,7 @@ button:disabled { cursor: default; opacity: .5; }
 .host-status-list { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 12px; }
 .host-status { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .settings-trigger { width: 32px; height: 32px; color: var(--color-text-muted); }
+.hosts-trigger { width: 32px; height: 32px; color: var(--color-text-muted); }
 
 .inventory { display: grid; gap: 18px; }
 .workspace-group { display: grid; gap: 9px; }
@@ -308,6 +309,24 @@ button:disabled { cursor: default; opacity: .5; }
   background: var(--color-surface);
 }
 .action-dialog-icon.settings { color: var(--color-brand-accent); }
+.action-dialog-icon.hosts { color: var(--color-info); }
+.hosts-dialog { width: min(680px, calc(100vw - 28px)); }
+.host-editor-list { display: grid; gap: 14px; margin-top: 22px; }
+.host-editor {
+  display: grid;
+  gap: 11px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-surface-raised) 70%, transparent);
+}
+.host-editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.host-editor-heading small, .host-editor > small { color: var(--color-text-muted); }
+.host-editor label { display: grid; gap: 6px; color: var(--color-text-muted); font-size: 12px; }
+.host-editor input { width: 100%; }
+.host-editor-actions { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 8px; }
+.host-editor-actions .danger { color: var(--color-danger-text); }
+.new-host { border-style: dashed; }
 .settings-sections { display: grid; gap: 22px; margin-top: 22px; }
 .settings-sections fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 .settings-sections legend {

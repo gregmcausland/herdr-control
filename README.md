@@ -101,8 +101,8 @@ npm start
 
 Open `http://127.0.0.1:4173`.
 
-Control connects to every configured Herdr machine and shows their Projects in
-one view. Each Project identifies its owning machine.
+Control connects to every saved Control Host and shows their Projects in one
+view. Each Project identifies its owning machine.
 
 ## Remote access
 
@@ -131,12 +131,19 @@ Restoration is offered only after Herdr reports a supported provider session
 reference. A thread leaves the active view immediately when archived, even if
 Herdr must wait for its worktree before safely retiring the pane.
 
-## Configuration
+## Control Hosts
 
-Browser hosts are defined in `src/client/hosts.json` and bundled into the client
-at build time. The client connects to every listed bridge directly. Each bridge
-must allow the origin serving Control so cross-host HTTP, SSE, and WebSocket
-connections succeed.
+The bridge serving the browser is the Home bridge. It stores the Control Host
+list in its local state database. Use the server button in the header to add,
+rename, check, or remove machines. The browser connects to every listed bridge
+directly, so each bridge must allow the Home bridge's origin for cross-host
+HTTP, SSE, and WebSocket connections.
+
+The current migration release imports `src/client/hosts.json` once and retains
+it as a fallback. See the [host configuration migration](docs/host-configuration-migration.md)
+before upgrading an existing installation.
+
+## Configuration
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -145,6 +152,7 @@ connections succeed.
 | `HERDR_CONTROL_BIN` | `herdr` | Herdr executable |
 | `HERDR_CONTROL_SOCKET` | Herdr's default socket | Explicit Herdr socket path |
 | `HERDR_CONTROL_STATE` | `~/.local/state/herdr-control/control.db` | Durable Control state database |
+| `HERDR_CONTROL_LEGACY_HOSTS` | `src/client/hosts.json` in the working directory | One-time source for Control Host migration |
 | `HERDR_CONTROL_ALLOWED_ORIGINS` | Local Control and Vite origins | Comma-separated origins for separately hosted clients |
 
 ## Development

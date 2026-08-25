@@ -7,6 +7,7 @@ import type { HerdrAdapter } from "./herdr";
 import type { SessionStateFeed } from "./live-session";
 import { createControlServer } from "./server";
 import { ThreadManager } from "./threads";
+import { ControlHostStore } from "./control-hosts";
 
 const snapshot: SessionSnapshot = {
   version: "test",
@@ -200,6 +201,68 @@ describe("Thread deletion", () => {
       expect(await response.json()).toMatchObject({ error: expect.stringMatching(/must be archived/) });
       expect(threads.list()[0].agent_session?.value).toBe("session-1");
       expect(requestRefresh).not.toHaveBeenCalled();
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+});
+
+describe("Control Host management", () => {
+  it("lists, adds, renames, and removes Home bridge configuration", async () => {
+    let nextId = 0;
+    const hosts = new ControlHostStore({
+      path: ":memory:",
+      legacyHosts: [{ label: "Existing", url: "existing.example" }],
+      createId: () => `host-${++nextId}`,
+    });
+    const threads = new ThreadManager({ path: ":memory:" });
+    const session: SessionStateFeed = {
+      current: () => ({ status: "live", revision: 1, snapshot }),
+      subscribe: () => () => undefined,
+      close: () => undefined,
+    };
+    const herdr = { snapshot: async () => snapshot } as unknown as HerdrAdapter;
+    const server = createControlServer({
+      host: "127.0.0.1",
+      port: 0,
+      herdrBinary: "herdr",
+      herdrSocketPath: "/tmp/herdr-test.sock",
+      statePath: ":memory:",
+      allowedOrigins: new Set(),
+    }, herdr, session, threads, hosts);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    const base = `http://127.0.0.1:${port}`;
+
+    try {
+      const initial = await fetch(`${base}/api/control-hosts`);
+      expect(initial.status).toBe(200);
+      expect(await initial.json()).toMatchObject({
+        hosts: [{ label: "Existing", url: "https://existing.example" }],
+      });
+
+      const created = await fetch(`${base}/api/control-hosts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: "Second", url: "second.example" }),
+      });
+      expect(created.status).toBe(201);
+      const createdBody = await created.json() as { host: { host_id: string } };
+
+      const renamed = await fetch(`${base}/api/control-hosts/${createdBody.host.host_id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: "Renamed", url: "https://second.example" }),
+      });
+      expect(renamed.status).toBe(200);
+      expect(await renamed.json()).toMatchObject({ host: { label: "Renamed" } });
+
+      const removed = await fetch(`${base}/api/control-hosts/${createdBody.host.host_id}`, {
+        method: "DELETE",
+      });
+      expect(removed.status).toBe(204);
+      expect((await (await fetch(`${base}/api/control-hosts`)).json() as { hosts: unknown[] }).hosts)
+        .toHaveLength(1);
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }
