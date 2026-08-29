@@ -14,9 +14,9 @@ const MIME_TYPES: Record<string, string> = {
 
 test("keeps one host usable while another disconnects and recovers", async ({ page }) => {
   let controlHosts: readonly ControlHost[] = [];
-  const second = new FakeBridge("Second MZ", "Second project");
+  const second = new FakeBridge("Second MZ", "Second project", () => [], false, ["pi"]);
   const secondUrl = await second.start();
-  const home = new FakeBridge("Home MZ", "Home project", () => controlHosts, true);
+  const home = new FakeBridge("Home MZ", "Home project", () => controlHosts, true, ["codex"]);
   const homeUrl = await home.start();
   controlHosts = [
     { label: "Home MZ", url: homeUrl },
@@ -31,6 +31,23 @@ test("keeps one host usable while another disconnects and recovers", async ({ pa
     await expect(secondStatus).toHaveClass(/live/);
     await expect(page.getByText("Home project", { exact: true })).toBeVisible();
     await expect(page.getByText("Second project", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Settings" }).click();
+    const settings = page.getByRole("dialog", { name: "Settings" });
+    await expect(settings.getByRole("button", { name: "Go back" })).toBeHidden();
+    expect(await settings.boundingBox()).toEqual({ x: 0, y: 0, width: 1280, height: 720 });
+    await settings.getByRole("button", { name: "Cancel" }).click();
+
+    await page.getByRole("button", { name: "New Thread in Home project on Home MZ" }).click();
+    const homeLauncher = page.getByRole("dialog", { name: "Choose an agent for Home project" });
+    await expect(homeLauncher.getByRole("button", { name: "Codex", exact: true })).toBeVisible();
+    await expect(homeLauncher.getByRole("button", { name: "Pi", exact: true })).toHaveCount(0);
+    await homeLauncher.getByRole("button", { name: "Close agent menu" }).click();
+
+    await page.getByRole("button", { name: "New Thread in Second project on Second MZ" }).click();
+    const secondLauncher = page.getByRole("dialog", { name: "Choose an agent for Second project" });
+    await expect(secondLauncher.getByRole("button", { name: "Pi", exact: true })).toBeVisible();
+    await expect(secondLauncher.getByRole("button", { name: "Codex", exact: true })).toHaveCount(0);
+    await secondLauncher.getByRole("button", { name: "Close agent menu" }).click();
 
     const secondPort = second.port;
     await second.stop();
@@ -48,6 +65,53 @@ test("keeps one host usable while another disconnects and recovers", async ({ pa
   }
 });
 
+test("opens the mobile task composer through the agent fan", async ({ page }) => {
+  let controlHosts: readonly ControlHost[] = [];
+  const home = new FakeBridge("Mobile MZ", "Mobile project", () => controlHosts, true);
+  const homeUrl = await home.start();
+  controlHosts = [{ label: "Mobile MZ", url: homeUrl }];
+
+  try {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(homeUrl);
+    await page.getByRole("button", { name: "New Thread in Mobile project on Mobile MZ" }).click();
+
+    const launcher = page.getByRole("dialog", { name: "Choose an agent for Mobile project" });
+    await expect(launcher).toBeVisible();
+    await launcher.getByRole("button", { name: "Pi", exact: true }).click();
+
+    const composer = page.getByRole("dialog", { name: "New thread" });
+    await expect(composer.getByText("Mobile project", { exact: true })).toBeVisible();
+    await expect(composer.getByLabel("What should Pi work on?")).toBeFocused();
+    await expect(composer.getByRole("button", { name: "Go back" })).toBeVisible();
+    await expect(composer).toHaveCSS("border-radius", "0px");
+    expect(await composer.boundingBox()).toEqual({ x: 0, y: 0, width: 390, height: 844 });
+    await expect(composer.getByRole("button", { name: /Pi · Project default/ })).toHaveAttribute("aria-expanded", "false");
+    await expect(composer.getByLabel("Agent")).toHaveCount(0);
+
+    await composer.getByRole("button", { name: /Pi · Project default/ }).click();
+    await expect(composer.getByRole("combobox", { name: /Agent/ })).toHaveValue("pi");
+
+    await composer.getByRole("button", { name: "Go back" }).click();
+    await page.getByRole("button", { name: "Settings" }).click();
+    const settings = page.getByRole("dialog", { name: "Settings" });
+    await expect(settings.getByRole("button", { name: "Go back" })).toBeVisible();
+    expect(await settings.boundingBox()).toEqual({ x: 0, y: 0, width: 390, height: 844 });
+
+    await settings.getByRole("button", { name: "Go back" }).click();
+    await page.getByRole("button", { name: "Manage Control Hosts" }).click();
+    const hosts = page.getByRole("dialog", { name: "Control Hosts" });
+    expect(await hosts.boundingBox()).toEqual({ x: 0, y: 0, width: 390, height: 844 });
+    await hosts.getByRole("button", { name: "Remove" }).click();
+    const confirmation = page.getByRole("dialog", { name: "Remove Mobile MZ?" });
+    const confirmationBox = await confirmation.boundingBox();
+    expect(confirmationBox?.y).toBeGreaterThan(0);
+    expect((confirmationBox?.y ?? 0) + (confirmationBox?.height ?? 0)).toBe(844);
+  } finally {
+    await home.stop();
+  }
+});
+
 class FakeBridge {
   private readonly responses = new Set<ServerResponse>();
   private readonly server = createServer((request, response) => this.respond(request, response));
@@ -58,6 +122,7 @@ class FakeBridge {
     private readonly projectName: string,
     private readonly controlHosts: () => readonly ControlHost[] = () => [],
     private readonly serveClient = false,
+    private readonly agents: readonly string[] = ["codex", "claude", "pi"],
   ) {}
 
   get port(): number {
@@ -92,6 +157,11 @@ class FakeBridge {
           updated_at: timestamp,
         })),
       }));
+      return;
+    }
+    if (pathname === "/api/agents") {
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ agents: this.agents }));
       return;
     }
     if (pathname === "/api/session/events") {

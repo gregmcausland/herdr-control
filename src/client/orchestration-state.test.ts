@@ -44,13 +44,24 @@ describe("orchestrationReducer", () => {
       },
       snapshot: { version: "test", protocol: 19, workspaces: [], tabs: [], panes: [] },
     };
-    let state = orchestrationReducer(initialOrchestrationState(), { type: "creation.opened", target });
+    let state = orchestrationReducer(initialOrchestrationState(), { type: "creation_launcher.opened", target });
+    expect(state.creationLauncherTarget).toBe(target);
+
+    state = orchestrationReducer(state, { type: "creation.opened", target, agent: "pi" });
+    expect(state).toMatchObject({ creationLauncherTarget: undefined, creationTarget: target, creationAgent: "pi" });
     state = orchestrationReducer(state, { type: "creation.started" });
     state = orchestrationReducer(state, { type: "creation.failed", error: "No route" });
     expect(state).toMatchObject({ creationTarget: target, creationPending: false, creationError: "No route" });
 
     state = orchestrationReducer(state, { type: "creation.started" });
     state = orchestrationReducer(state, { type: "creation.completed" });
-    expect(state).toMatchObject({ creationTarget: undefined, creationPending: false });
+    expect(state).toMatchObject({ creationTarget: undefined, creationAgent: undefined, creationPending: false });
+  });
+
+  it("opens and closes the archive screen", () => {
+    let state = orchestrationReducer(initialOrchestrationState(), { type: "archive.opened" });
+    expect(state.archiveOpen).toBe(true);
+    state = orchestrationReducer(state, { type: "archive.closed" });
+    expect(state.archiveOpen).toBe(false);
   });
 });

@@ -1,4 +1,5 @@
 import type { SessionSnapshot, ThreadInfo } from "../shared/protocol";
+import { isRecentArchive } from "../shared/archive-policy";
 import type { ControlHost } from "./hosts";
 import type { HostSessionFeed } from "./live-session";
 import {
@@ -67,6 +68,13 @@ export function archivedThreadsAcrossHosts(
     second.thread.updated_at.localeCompare(first.thread.updated_at)
     || first.key.localeCompare(second.key)
   ));
+}
+
+export function recentArchivedThreads(
+  threads: readonly HostedArchivedThread[],
+  now = Date.now(),
+): HostedArchivedThread[] {
+  return threads.filter(({ thread }) => isRecentArchive(thread, now));
 }
 
 export function hostedKey(hostUrl: string, localId: string): string {

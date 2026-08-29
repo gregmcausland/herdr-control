@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type { ControlHost, StoredControlHost } from "../shared/control-hosts";
 import type { ControlHostConfiguration } from "./control-hosts";
 import type { HostSessionFeed } from "./live-session";
+import { ConfirmSurface, TaskSurface } from "./Surface";
 
 type HostDraft = Pick<ControlHost, "label" | "url">;
 
@@ -14,17 +15,12 @@ export function ControlHostsDialog({
   liveState: ReadonlyMap<string, Pick<HostSessionFeed, "status" | "message" | "snapshot">>;
   onClose(): void;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
   const [drafts, setDrafts] = useState<Record<string, HostDraft>>(() => draftsFor(configuration.storedHosts));
   const [newHost, setNewHost] = useState<HostDraft>({ label: "", url: "" });
   const [pending, setPending] = useState<string>();
   const [error, setError] = useState<string>();
   const [checks, setChecks] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    dialog.current?.showModal();
-    return () => dialog.current?.close();
-  }, []);
+  const [removeTarget, setRemoveTarget] = useState<StoredControlHost>();
 
   useEffect(() => setDrafts(draftsFor(configuration.storedHosts)), [configuration.storedHosts]);
 
@@ -46,11 +42,11 @@ export function ControlHostsDialog({
   }
 
   async function remove(host: StoredControlHost) {
-    if (!window.confirm(`Remove ${host.label} from Control? Its bridge and Herdr processes will keep running.`)) return;
     setPending(host.host_id);
     setError(undefined);
     try {
       await configuration.remove(host.host_id);
+      setRemoveTarget(undefined);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to remove Control Host");
     } finally {
@@ -75,31 +71,28 @@ export function ControlHostsDialog({
   const editable = configuration.status === "database";
 
   return (
-    <dialog
-      ref={dialog}
-      className="action-dialog hosts-dialog"
-      onCancel={(event) => {
-        event.preventDefault();
-        if (!pending) onClose();
-      }}
-    >
-      <div className="action-dialog-content">
-        <span className="action-dialog-icon hosts" aria-hidden="true"><HostsIcon /></span>
-        <div>
-          <h2>Control Hosts</h2>
-          <p>Manage the Herdr machines shown by this Home bridge.</p>
-        </div>
-      </div>
+    <>
+      <TaskSurface
+        title="Control Hosts"
+        description="Herdr machines available from this Home bridge."
+        className="hosts-dialog"
+        busy={Boolean(pending)}
+        onClose={onClose}
+        actions={
+          <button className="surface-button secondary" type="button" disabled={Boolean(pending)} onClick={onClose}>
+            Close
+          </button>
+        }
+      >
+        {configuration.status === "fallback" && (
+          <p className="surface-note">
+            Using the bundled host list because database configuration could not load.
+            Editing is disabled. {configuration.message}
+          </p>
+        )}
+        {error && !removeTarget && <p className="surface-error">{error}</p>}
 
-      {configuration.status === "fallback" && (
-        <p className="action-dialog-note">
-          Using the bundled host list because database configuration could not load.
-          Editing is disabled. {configuration.message}
-        </p>
-      )}
-      {error && <p className="action-dialog-error">{error}</p>}
-
-      <div className="host-editor-list">
+        <div className="host-editor-list">
         {configuration.storedHosts.map((host) => {
           const draft = drafts[host.host_id] ?? host;
           const feed = liveState.get(host.url);
@@ -140,14 +133,17 @@ export function ControlHostsDialog({
                 />
               </label>
               <div className="host-editor-actions">
-                <button className="secondary" type="button" disabled={Boolean(pending)} onClick={() => void check(draft)}>
+                <button className="surface-button secondary" type="button" disabled={Boolean(pending)} onClick={() => void check(draft)}>
                   Check
                 </button>
                 <span />
-                <button className="secondary danger" type="button" disabled={!editable || Boolean(pending)} onClick={() => void remove(host)}>
+                <button className="surface-button secondary danger" type="button" disabled={!editable || Boolean(pending)} onClick={() => {
+                  setError(undefined);
+                  setRemoveTarget(host);
+                }}>
                   Remove
                 </button>
-                <button type="submit" disabled={!editable || Boolean(pending)}>
+                <button className="surface-button primary" type="submit" disabled={!editable || Boolean(pending)}>
                   {pending === host.host_id ? "Saving…" : "Save"}
                 </button>
               </div>
@@ -182,21 +178,35 @@ export function ControlHostsDialog({
           </label>
           {checks.new && <small>{checks.new}</small>}
           <div className="host-editor-actions">
-            <button className="secondary" type="button" disabled={!newHost.url || Boolean(pending)} onClick={() => void check(newHost)}>
+            <button className="surface-button secondary" type="button" disabled={!newHost.url || Boolean(pending)} onClick={() => void check(newHost)}>
               Check
             </button>
             <span />
-            <button type="submit" disabled={!editable || Boolean(pending)}>
+            <button className="surface-button primary" type="submit" disabled={!editable || Boolean(pending)}>
               {pending === "new" ? "Adding…" : "Add Host"}
             </button>
           </div>
         </form>
-      </div>
+        </div>
+      </TaskSurface>
 
-      <footer>
-        <button className="secondary" type="button" disabled={Boolean(pending)} onClick={onClose}>Close</button>
-      </footer>
-    </dialog>
+      {removeTarget && (
+        <ConfirmSurface
+          title={`Remove ${removeTarget.label}?`}
+          message="It will disappear from Control. Its bridge and Herdr processes will keep running."
+          confirmLabel="Remove"
+          pendingLabel="Removing…"
+          tone="destructive"
+          error={error}
+          busy={pending === removeTarget.host_id}
+          onClose={() => {
+            setError(undefined);
+            setRemoveTarget(undefined);
+          }}
+          onConfirm={() => void remove(removeTarget)}
+        />
+      )}
+    </>
   );
 }
 

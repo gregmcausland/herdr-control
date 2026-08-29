@@ -66,6 +66,23 @@ describe("archived pane retirement", () => {
   });
 });
 
+describe("Thread messages", () => {
+  it("uses Herdr's acknowledged agent prompt command", async () => {
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+    const herdr = new HerdrAdapter("herdr", "/tmp/herdr.sock", async (_socket, method, params) => {
+      calls.push({ method, params });
+      return { result: { type: "agent_prompted" } };
+    });
+
+    await herdr.promptThread("w1:p1", "Continue from the current state.");
+
+    expect(calls).toEqual([{
+      method: "agent.prompt",
+      params: { target: "w1:p1", text: "Continue from the current state." },
+    }]);
+  });
+});
+
 const project: ProjectInfo = {
   project_id: "project-1",
   name: "Control",

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PaneInfo, ProjectInfo, SessionSnapshot } from "../shared/protocol";
 import type { ControlHost } from "./hosts";
-import { archivedThreadsAcrossHosts, projectsAcrossHosts } from "./hosted-projects";
+import { archivedThreadsAcrossHosts, projectsAcrossHosts, recentArchivedThreads } from "./hosted-projects";
 import type { HostSessionFeed } from "./live-session";
 
 const serverMz = { label: "Server MZ", url: "https://server.example" } satisfies ControlHost;
@@ -111,5 +111,35 @@ describe("multi-host Project projection", () => {
 
     expect(threads).toHaveLength(2);
     expect(new Set(threads.map(({ key }) => key)).size).toBe(2);
+  });
+
+  it("keeps only the last seven days in recent archive history", () => {
+    const current = snapshot(project("Control"), pane("server"));
+    current.threads = [
+      {
+        thread_id: "recent",
+        title: "Recent",
+        agent: "codex",
+        agent_session: { source: "herdr:codex", agent: "codex", kind: "id", value: "recent" },
+        lifecycle: "archived",
+        created_at: "2026-08-27T12:00:00.000Z",
+        updated_at: "2026-08-27T12:00:00.000Z",
+        archived_at: "2026-08-27T12:00:00.000Z",
+      },
+      {
+        thread_id: "older",
+        title: "Older",
+        agent: "codex",
+        agent_session: { source: "herdr:codex", agent: "codex", kind: "id", value: "older" },
+        lifecycle: "archived",
+        created_at: "2026-08-10T12:00:00.000Z",
+        updated_at: "2026-08-10T12:00:00.000Z",
+        archived_at: "2026-08-10T12:00:00.000Z",
+      },
+    ];
+    const archived = archivedThreadsAcrossHosts([feed(serverMz, { snapshot: current })]);
+
+    expect(recentArchivedThreads(archived, Date.parse("2026-08-29T12:00:00.000Z"))
+      .map(({ thread }) => thread.thread_id)).toEqual(["recent"]);
   });
 });

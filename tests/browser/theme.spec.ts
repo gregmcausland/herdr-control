@@ -54,14 +54,18 @@ test("applies and remembers settings for appearance and new threads", async ({ p
     contentType: "text/event-stream",
     body: `data: ${JSON.stringify({ status: "live", revision: 1, snapshot })}\n\n`,
   }));
+  await page.route("**/api/agents", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ agents: ["codex", "claude", "pi"] }),
+  }));
 
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
   await page.getByRole("button", { name: "Settings" }).click();
   await expect.poll(() => settingsPalette(page)).toEqual({
     colorScheme: "dark",
-    dialog: "rgb(33, 34, 44)",
+    dialog: "rgb(40, 42, 54)",
     field: "rgb(52, 55, 70)",
-    accent: "rgb(215, 255, 100)",
+    primary: "rgb(248, 248, 242)",
   });
   await page.getByLabel("Theme").selectOption("catppuccinLatte");
   await page.getByLabel("Default agent").selectOption("pi");
@@ -90,9 +94,9 @@ test("applies and remembers settings for appearance and new threads", async ({ p
   await expect(page.getByLabel("Terminal text size")).toHaveValue("16");
   await expect.poll(() => settingsPalette(page)).toEqual({
     colorScheme: "light",
-    dialog: "rgb(230, 233, 239)",
+    dialog: "rgb(239, 241, 245)",
     field: "rgb(204, 208, 218)",
-    accent: "rgb(215, 255, 100)",
+    primary: "rgb(76, 79, 105)",
   });
 });
 
@@ -101,7 +105,7 @@ async function settingsPalette(page: import("@playwright/test").Page) {
     colorScheme: getComputedStyle(document.documentElement).colorScheme,
     dialog: getComputedStyle(document.querySelector(".settings-dialog")!).backgroundColor,
     field: getComputedStyle(document.querySelector(".settings-fields select")!).backgroundColor,
-    accent: getComputedStyle(document.querySelector(".settings-footer button[type='submit']")!).backgroundColor,
+    primary: getComputedStyle(document.querySelector(".settings-dialog .surface-button.primary")!).backgroundColor,
   }));
 }
 

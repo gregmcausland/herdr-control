@@ -91,6 +91,10 @@ Control currently uses these socket methods:
 - `worktree.create` and `worktree.open`
 - `agent.start`, `agent.get`, and `agent.prompt`
 
+Control uses `agent.prompt` for both a new Thread's initial message and later
+messages from the mobile composer. The HTTP request succeeds only after Herdr
+acknowledges the prompt command. It does not require terminal ownership.
+
 Workspace, tab, and Worktree creation must return enough information to resolve
 `workspace_id`, `tab_id`, and `root_pane.pane_id`. A new agent is not considered
 ready merely because `agent.start` returns: Control polls `agent.get` until the
@@ -197,9 +201,8 @@ details still require maintenance:
   dark RGB surfaces that bypass xterm's theme palette. A changed sequence should
   only require a fixture in `terminal-color-adapter.test.ts`, not harness logic
   in the React view.
-- The message composer pastes text, waits 75 ms, then sends logical Enter. Native
-  terminal input remains the authoritative fallback if a TUI changes its paste
-  handling.
+- The message composer sends through `agent.prompt`. Direct terminal input is
+  reserved for intentional interaction with the agent TUI.
 
 The latest explicitly validated harness versions are recorded in
 `docs/prototype-validation.md` and should be updated after live compatibility

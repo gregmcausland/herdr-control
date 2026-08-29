@@ -246,6 +246,7 @@ export function TerminalView({ bridgeUrl, pane, themeId, fontFamily, fontSize, c
   }
 
   const inputActive = state === "connected" && mode === "control";
+  const messageAvailable = Boolean(pane.thread_id);
   const paneLabel = pane.terminal_title_stripped ?? pane.label ?? pane.pane_id;
   const working = pane.agent_status === "working";
 
@@ -282,11 +283,24 @@ export function TerminalView({ bridgeUrl, pane, themeId, fontFamily, fontSize, c
         <div className="terminal-host" ref={containerRef} />
       </div>
       <MobileTerminalControls
-        active={inputActive}
+        terminalActive={inputActive}
+        messageAvailable={messageAvailable}
         paneLabel={paneLabel}
         onFocusTerminal={() => inputRef.current?.focus()}
         onKey={(data) => inputRef.current?.sendKey(data) ?? false}
-        onSendMessage={(text) => inputRef.current?.sendMessage(text) ?? false}
+        onSendMessage={async (text) => {
+          if (!pane.thread_id) throw new Error("No active Thread");
+          const response = await fetch(
+            `${bridgeUrl}/api/threads/${encodeURIComponent(pane.thread_id)}/messages`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text }),
+            },
+          );
+          const body = await response.json().catch(() => undefined) as { error?: string } | undefined;
+          if (!response.ok) throw new Error(body?.error ?? `Request failed with status ${response.status}`);
+        }}
       />
       {state === "occupied" && (
         <div className="terminal-overlay">

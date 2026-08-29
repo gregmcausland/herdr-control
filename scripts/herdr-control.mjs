@@ -76,26 +76,9 @@ async function install() {
   }
   chmodSync(environmentPath, 0o600);
 
-  mkdirSync(unitDirectory, { recursive: true });
-  const previousUnit = existsSync(unitPath) ? readFileSync(unitPath) : undefined;
-  if (previousUnit) copyFileSync(unitPath, `${unitPath}.backup-${timestamp()}`);
-  try {
-    writeFileSync(unitPath, systemdUnit({
-      projectRoot,
-      nodePath: process.execPath,
-      environmentPath,
-    }));
-    run("systemd-analyze", ["--user", "verify", unitPath]);
-    systemctl(["daemon-reload"]);
-    systemctl(["enable", "herdr-control.service"]);
-    systemctl(["restart", "herdr-control.service"]);
-  } catch (error) {
-    if (previousUnit) writeFileSync(unitPath, previousUnit);
-    else if (existsSync(unitPath)) unlinkSync(unitPath);
-    systemctl(["daemon-reload"], false);
-    systemctl(["restart", "herdr-control.service"], false);
-    throw error;
-  }
+  installSystemdUnit();
+  systemctl(["enable", "herdr-control.service"]);
+  systemctl(["restart", "herdr-control.service"]);
   console.log(`Installed Herdr Control from ${projectRoot}`);
   console.log(`Configuration: ${environmentPath}`);
   console.log(`State retained at: ${statePath}`);
@@ -114,6 +97,7 @@ async function update() {
   run("npm", ["ci"], { cwd: projectRoot, inherit: true });
   validateMigrationWhenPresent();
   run("npm", ["run", "build"], { cwd: projectRoot, inherit: true });
+  installSystemdUnit();
   systemctl(["restart", "herdr-control.service"]);
   systemctl(["status", "herdr-control.service", "--no-pager"], false);
 }
@@ -149,11 +133,33 @@ async function backupStateWhenPresent() {
   console.log(`Backed up Control state to ${destination}`);
 }
 
+/** Reconciles the installed unit on both fresh installs and updates. */
+function installSystemdUnit() {
+  mkdirSync(unitDirectory, { recursive: true });
+  const previousUnit = existsSync(unitPath) ? readFileSync(unitPath) : undefined;
+  if (previousUnit) copyFileSync(unitPath, `${unitPath}.backup-${timestamp()}`);
+  try {
+    writeFileSync(unitPath, systemdUnit({
+      projectRoot,
+      nodePath: process.execPath,
+      environmentPath,
+    }));
+    run("systemd-analyze", ["--user", "verify", unitPath]);
+    systemctl(["daemon-reload"]);
+  } catch (error) {
+    if (previousUnit) writeFileSync(unitPath, previousUnit);
+    else if (existsSync(unitPath)) unlinkSync(unitPath);
+    systemctl(["daemon-reload"], false);
+    systemctl(["restart", "herdr-control.service"], false);
+    throw error;
+  }
+}
+
 export function systemdUnit({ projectRoot, nodePath, environmentPath }) {
   return `[Unit]
 Description=Herdr Control browser bridge
-After=herdr.service network-online.target
-Wants=network-online.target
+# Control reconnects when Herdr becomes available. Ordering this unit after an
+# externally managed Herdr service can create a default.target startup cycle.
 
 [Service]
 Type=simple

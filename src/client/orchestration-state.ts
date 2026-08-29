@@ -10,9 +10,11 @@ import { useControlHosts } from "./control-hosts";
 import {
   archivedThreadsAcrossHosts,
   projectsAcrossHosts,
+  recentArchivedThreads,
   type HostedArchivedThread,
 } from "./hosted-projects";
 import { normalizeHost, resolveInitialHost, type ControlHost } from "./hosts";
+import { useHostAgentInventories } from "./host-agent-inventory";
 import { useLiveSessions } from "./live-session";
 import {
   homePath,
@@ -47,11 +49,14 @@ export interface OrchestrationState {
   terminalSelection?: TerminalSelection;
   settingsOpen: boolean;
   hostsOpen: boolean;
+  archiveOpen: boolean;
   paneAction?: PaneAction;
   pendingAction: boolean;
   actionError?: string;
   restoringThreadKey?: string;
+  creationLauncherTarget?: CreationTarget;
   creationTarget?: CreationTarget;
+  creationAgent?: string;
   creationPending: boolean;
   creationError?: string;
 }
@@ -59,13 +64,15 @@ export interface OrchestrationState {
 export type OrchestrationEvent =
   | { type: "terminal.opened"; selection: TerminalSelection }
   | { type: "terminal.closed" }
-  | { type: "settings.opened" | "settings.closed" | "hosts.opened" | "hosts.closed" }
+  | { type: "settings.opened" | "settings.closed" | "hosts.opened" | "hosts.closed" | "archive.opened" | "archive.closed" }
   | { type: "pane_action.opened"; action: PaneAction }
   | { type: "pane_action.cancelled" | "pane_action.started" | "pane_action.completed" }
   | { type: "pane_action.failed"; error: string }
   | { type: "restore.started"; key: string }
   | { type: "restore.completed"; error?: string }
-  | { type: "creation.opened"; target: CreationTarget }
+  | { type: "creation_launcher.opened"; target: CreationTarget }
+  | { type: "creation_launcher.cancelled" }
+  | { type: "creation.opened"; target: CreationTarget; agent?: string }
   | { type: "creation.cancelled" | "creation.started" | "creation.completed" }
   | { type: "creation.failed"; error: string };
 
@@ -76,12 +83,13 @@ export function initialOrchestrationState(
     terminalSelection,
     settingsOpen: false,
     hostsOpen: false,
+    archiveOpen: false,
     pendingAction: false,
     creationPending: false,
   };
 }
 
-/** Keeps route, request, pending, and modal transitions explicit and testable. */
+/** Keeps route, request, pending, and task-view transitions explicit and testable. */
 export function orchestrationReducer(
   state: OrchestrationState,
   event: OrchestrationEvent,
@@ -93,6 +101,8 @@ export function orchestrationReducer(
     case "settings.closed": return { ...state, settingsOpen: false };
     case "hosts.opened": return { ...state, hostsOpen: true };
     case "hosts.closed": return { ...state, hostsOpen: false };
+    case "archive.opened": return { ...state, archiveOpen: true };
+    case "archive.closed": return { ...state, archiveOpen: false };
     case "pane_action.opened":
       return { ...state, paneAction: event.action, actionError: undefined };
     case "pane_action.cancelled":
@@ -107,14 +117,29 @@ export function orchestrationReducer(
       return { ...state, restoringThreadKey: event.key, actionError: undefined };
     case "restore.completed":
       return { ...state, restoringThreadKey: undefined, actionError: event.error };
+    case "creation_launcher.opened":
+      return { ...state, creationLauncherTarget: event.target, creationError: undefined };
+    case "creation_launcher.cancelled":
+      return { ...state, creationLauncherTarget: undefined };
     case "creation.opened":
-      return { ...state, creationTarget: event.target, creationError: undefined };
+      return {
+        ...state,
+        creationLauncherTarget: undefined,
+        creationTarget: event.target,
+        creationAgent: event.agent,
+        creationError: undefined,
+      };
     case "creation.cancelled":
-      return { ...state, creationTarget: undefined, creationError: undefined };
+      return { ...state, creationTarget: undefined, creationAgent: undefined, creationError: undefined };
     case "creation.started":
       return { ...state, creationPending: true, creationError: undefined };
     case "creation.completed":
-      return { ...state, creationPending: false, creationTarget: undefined };
+      return {
+        ...state,
+        creationPending: false,
+        creationTarget: undefined,
+        creationAgent: undefined,
+      };
     case "creation.failed":
       return { ...state, creationPending: false, creationError: event.error };
   }
@@ -126,6 +151,7 @@ export function useControlOrchestration() {
   const homeBridge = homeBridgeUrl();
   const hostConfiguration = useControlHosts(homeBridge, preferredHostUrl);
   const liveSessions = useLiveSessions(hostConfiguration.hosts);
+  const agentInventories = useHostAgentInventories(hostConfiguration.hosts);
   const [state, dispatch] = useReducer(
     orchestrationReducer,
     terminalSelectionFromLocation(),
@@ -140,6 +166,7 @@ export function useControlOrchestration() {
     : state.terminalSelection?.route.kind === "pane"
       ? activeSnapshot?.panes.find((pane) => pane.pane_id === state.terminalSelection!.route.id)
       : undefined;
+  const archivedThreads = archivedThreadsAcrossHosts(liveSessions);
 
   useEffect(() => {
     const followBrowserHistory = () => {
@@ -255,8 +282,10 @@ export function useControlOrchestration() {
     ...state,
     hostConfiguration,
     liveSessions,
+    agentInventories,
     projectGroups: projectsAcrossHosts(liveSessions),
-    archivedThreads: archivedThreadsAcrossHosts(liveSessions),
+    archivedThreads,
+    recentArchivedThreads: recentArchivedThreads(archivedThreads),
     activePane,
     openPane,
     returnHome,
@@ -264,11 +293,15 @@ export function useControlOrchestration() {
     closeSettings: () => dispatch({ type: "settings.closed" }),
     openHosts: () => dispatch({ type: "hosts.opened" }),
     closeHosts: () => dispatch({ type: "hosts.closed" }),
+    openArchive: () => dispatch({ type: "archive.opened" }),
+    closeArchive: () => dispatch({ type: "archive.closed" }),
     openPaneAction: (action: PaneAction) => dispatch({ type: "pane_action.opened", action }),
     cancelPaneAction: () => dispatch({ type: "pane_action.cancelled" }),
     confirmPaneAction,
     restoreThread,
-    openCreation: (target: CreationTarget) => dispatch({ type: "creation.opened", target }),
+    openCreationLauncher: (target: CreationTarget) => dispatch({ type: "creation_launcher.opened", target }),
+    cancelCreationLauncher: () => dispatch({ type: "creation_launcher.cancelled" }),
+    openCreation: (target: CreationTarget, agent?: string) => dispatch({ type: "creation.opened", target, agent }),
     cancelCreation: () => dispatch({ type: "creation.cancelled" }),
     createThread,
   };

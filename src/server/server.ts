@@ -5,6 +5,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import type {
   ControlHost,
 } from "../shared/control-hosts.js";
+import { isKnownAgentKind, type KnownAgentKind } from "../shared/agents.js";
 import {
   CONTROL_VERSION,
   HERDR_PROTOCOL_MAX,
@@ -21,6 +22,7 @@ import {
   ClipboardImageStore,
   MAX_CLIPBOARD_IMAGE_BYTES,
 } from "./clipboard-image.js";
+import { discoverAvailableAgentKinds } from "./agent-discovery.js";
 import { HerdrAdapter } from "./herdr.js";
 import { HerdrSocketSource } from "./herdr-socket.js";
 import { LiveSession, type SessionStateFeed } from "./live-session.js";
@@ -42,6 +44,7 @@ import {
   PaneNotFoundError,
   ProjectNotFoundError,
   ThreadLifecycleService,
+  ThreadNotPromptableError,
   WorktreeNotFoundError,
 } from "./thread-lifecycle.js";
 
@@ -63,6 +66,7 @@ export function createControlServer(
   providedSession?: SessionStateFeed,
   providedThreads?: ThreadManager,
   providedHosts?: ControlHostStore,
+  discoverAgents: () => Promise<readonly KnownAgentKind[]> = discoverAvailableAgentKinds,
 ) {
   const threads = providedThreads ?? new ThreadManager({
     path: config.statePath,
@@ -108,6 +112,16 @@ export function createControlServer(
     }
     if (request.method === "GET" && url.pathname === "/api/control-hosts") {
       sendJson(response, 200, { hosts: hosts.list() });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/agents") {
+      try {
+        sendJson(response, 200, { agents: await discoverAgents() });
+      } catch (error) {
+        sendJson(response, 500, {
+          error: error instanceof Error ? error.message : "Unable to discover host agents",
+        });
+      }
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/control-hosts") {
@@ -166,6 +180,10 @@ export function createControlServer(
     if (request.method === "POST" && creationProjectId) {
       try {
         const creation = threadCreationRequest(await readJsonBody(request, 128 * 1024));
+        if (isKnownAgentKind(creation.agent) && !(await discoverAgents()).includes(creation.agent)) {
+          sendJson(response, 409, { error: `${creation.agent} is not available on this Control Host` });
+          return;
+        }
         const result = await threadLifecycle.create(creationProjectId, creation);
         sendJson(response, 201, { thread: result });
       } catch (error) {
@@ -195,6 +213,26 @@ export function createControlServer(
             : 502;
         sendJson(response, status, {
           error: error instanceof Error ? error.message : `Unable to ${threadAction.action} Thread`,
+        });
+      }
+      return;
+    }
+    const messageThreadId = threadMessageFromPath(url.pathname);
+    if (request.method === "POST" && messageThreadId) {
+      try {
+        const text = threadMessageRequest(await readJsonBody(request, 128 * 1024));
+        await threadLifecycle.prompt(messageThreadId, text);
+        sendJson(response, 200, { acknowledged: true });
+      } catch (error) {
+        const status = error instanceof RequestBodyError
+          ? 400
+          : error instanceof ThreadNotFoundError
+            ? 404
+            : error instanceof ThreadNotPromptableError
+              ? 409
+            : 502;
+        sendJson(response, status, {
+          error: error instanceof Error ? error.message : "Unable to send message",
         });
       }
       return;
@@ -389,6 +427,11 @@ function threadActionFromPath(pathname: string): { threadId: string; action: "ar
   return threadId ? { threadId, action: match[2] as "archive" | "restore" } : undefined;
 }
 
+function threadMessageFromPath(pathname: string): string | undefined {
+  const match = /^\/api\/threads\/([^/]+)\/messages$/.exec(pathname);
+  return match ? decodeIdentifier(match[1]) : undefined;
+}
+
 function projectThreadCreationFromPath(pathname: string): string | undefined {
   const match = /^\/api\/projects\/([^/]+)\/threads$/.exec(pathname);
   return match ? decodeIdentifier(match[1]) : undefined;
@@ -541,6 +584,15 @@ function threadCreationRequest(value: unknown): ThreadCreationRequest {
     };
   }
   throw new RequestBodyError("A valid Thread location is required");
+}
+
+function threadMessageRequest(value: unknown): string {
+  const request = record(value);
+  const text = request?.text;
+  if (typeof text !== "string") throw new RequestBodyError("Message must be text");
+  if (!text.trim()) throw new RequestBodyError("Message is required");
+  if (text.length > 100_000) throw new RequestBodyError("Message is too long");
+  return text;
 }
 
 function optionalBoolean(value: unknown, label: string): boolean | undefined {

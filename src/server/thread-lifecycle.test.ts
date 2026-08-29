@@ -5,9 +5,10 @@ import {
   PaneNotDeletableError,
   ProjectNotFoundError,
   ThreadLifecycleService,
+  ThreadNotPromptableError,
   WorktreeNotFoundError,
 } from "./thread-lifecycle";
-import { ThreadManager, ThreadNotDeletableError } from "./threads";
+import { ThreadManager, ThreadNotDeletableError, ThreadNotFoundError } from "./threads";
 
 describe("ThreadLifecycleService", () => {
   it("resolves durable placement before asking Herdr to create a Thread", async () => {
@@ -80,6 +81,28 @@ describe("ThreadLifecycleService", () => {
       .rejects.toBeInstanceOf(PaneNotDeletableError);
     expect(snapshot).toHaveBeenCalledTimes(2);
     expect(refresh).not.toHaveBeenCalled();
+    threads.close();
+  });
+
+  it("prompts the active Run and waits for Herdr acknowledgement", async () => {
+    const threads = new ThreadManager({ path: ":memory:" });
+    const projected = threads.reconcile(agentSnapshot("session-1"));
+    const promptThread = vi.fn(async () => undefined);
+    const refresh = vi.fn();
+    const lifecycle = new ThreadLifecycleService(
+      threads,
+      { promptThread } as unknown as HerdrAdapter,
+      refresh,
+    );
+
+    await lifecycle.prompt(projected.threads![0].thread_id, "Review the failure and continue.");
+
+    expect(promptThread).toHaveBeenCalledExactlyOnceWith("w1:p1", "Review the failure and continue.");
+    expect(refresh).toHaveBeenCalledOnce();
+    await expect(lifecycle.prompt("missing", "Hello")).rejects.toBeInstanceOf(ThreadNotFoundError);
+    threads.reconcile({ ...agentSnapshot("session-1"), panes: [], agents: [] });
+    await expect(lifecycle.prompt(projected.threads![0].thread_id, "Hello"))
+      .rejects.toBeInstanceOf(ThreadNotPromptableError);
     threads.close();
   });
 });

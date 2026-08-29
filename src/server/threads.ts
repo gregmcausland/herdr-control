@@ -12,6 +12,7 @@ import type {
   ThreadLifecycle,
   WorktreeInfo,
 } from "../shared/protocol.js";
+import { ARCHIVE_RETENTION_MS } from "../shared/archive-policy.js";
 
 const RESTORE_CLAIM_TTL_MS = 90_000;
 
@@ -140,7 +141,10 @@ export class ThreadManager {
     try {
       this.assertDatabaseHealthy();
       this.migrate();
-      this.transaction(() => this.purgeNonRestorableArchivedThreads());
+      this.transaction(() => {
+        this.purgeNonRestorableArchivedThreads();
+        this.purgeExpiredArchivedThreads(this.now());
+      });
       this.assertDatabaseHealthy();
     } catch (error) {
       this.database.close();
@@ -170,6 +174,7 @@ export class ThreadManager {
     const observedPaneIds = new Set(allObservations.map((pane) => pane.pane_id));
 
     this.transaction(() => {
+      this.purgeExpiredArchivedThreads(observedAt);
       this.reconcileProjects(snapshot, observedAt);
       this.backfillThreadProjects();
       for (const pane of snapshot.panes) {
@@ -322,6 +327,10 @@ export class ThreadManager {
       ORDER BY threads.created_at, threads.thread_id
     `).all() as unknown as ThreadWithRunRow[];
     return rows.map(threadInfoFromRow);
+  }
+
+  getThread(threadId: string): ThreadInfo | undefined {
+    return this.thread(threadId);
   }
 
   listProjects(): ProjectInfo[] {
@@ -1196,6 +1205,23 @@ export class ThreadManager {
           OR threads.session_kind IS NULL OR threads.session_value IS NULL
         )
     `).all() as unknown as Array<{ thread_id: string; pane_id: string | null }>;
+    for (const row of rows) {
+      if (row.pane_id) this.recordPaneRetirement(row.pane_id);
+      this.deleteThreadRecords(row.thread_id);
+    }
+  }
+
+  /** Permanently removes archived Threads after the fixed retention window. */
+  private purgeExpiredArchivedThreads(observedAt: string): void {
+    const cutoff = new Date(Date.parse(observedAt) - ARCHIVE_RETENTION_MS).toISOString();
+    const rows = this.database.prepare(`
+      SELECT threads.thread_id, runs.pane_id
+      FROM threads
+      LEFT JOIN runs ON runs.thread_id = threads.thread_id AND runs.ended_at IS NULL
+      WHERE threads.lifecycle = 'archived'
+        AND threads.archived_at IS NOT NULL
+        AND threads.archived_at <= ?
+    `).all(cutoff) as unknown as Array<{ thread_id: string; pane_id: string | null }>;
     for (const row of rows) {
       if (row.pane_id) this.recordPaneRetirement(row.pane_id);
       this.deleteThreadRecords(row.thread_id);

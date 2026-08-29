@@ -17,7 +17,6 @@ interface TerminalInputOptions {
 
 export interface TerminalInputController {
   sendKey: (data: string) => boolean;
-  sendMessage: (text: string) => boolean;
   focus: () => void;
   dispose: () => void;
 }
@@ -35,7 +34,6 @@ export function attachTerminalInput({ terminal, host, bridgeUrl, channel }: Term
   let touchPointer: number | undefined;
   let touchY: number | undefined;
   let touchTravel = 0;
-  const messageTimers = new Set<number>();
 
   const sendScroll = (
     source: "wheel" | "page_key",
@@ -221,17 +219,6 @@ export function attachTerminalInput({ terminal, host, bridgeUrl, channel }: Term
     return true;
   };
 
-  const sendMessage = (text: string) => {
-    if (!channel.active() || text.trim().length === 0) return false;
-    terminal.paste(text);
-    const timer = window.setTimeout(() => {
-      messageTimers.delete(timer);
-      if (!disposed && channel.active()) channel.send({ type: "key", key: "enter" });
-    }, 75);
-    messageTimers.add(timer);
-    return true;
-  };
-
   const dispose = () => {
     disposed = true;
     element.removeEventListener("paste", handlePaste, { capture: true });
@@ -245,15 +232,12 @@ export function attachTerminalInput({ terminal, host, bridgeUrl, channel }: Term
     host.removeEventListener("touchmove", suppressXtermTouch, { capture: true });
     resetTouch();
     if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame);
-    for (const timer of messageTimers) window.clearTimeout(timer);
-    messageTimers.clear();
     dataSubscription.dispose();
     resizeSubscription.dispose();
   };
 
   return {
     sendKey,
-    sendMessage,
     focus: () => terminal.focus(),
     dispose,
   };

@@ -1,11 +1,14 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent } from "react";
 import type {
   ProjectInfo,
   ThreadCreationLocation,
   ThreadCreationRequest,
   WorktreeInfo,
 } from "../shared/protocol";
-import { AGENT_KINDS } from "./agent-catalog";
+import { AGENT_KINDS, type AgentDefinition } from "../shared/agents";
+import { TaskSurface } from "./Surface";
+import type { ThemeId } from "./theme";
+import { WorkingActivity } from "./WorkingActivity";
 
 export function ThreadCreationDialog({
   project,
@@ -14,6 +17,8 @@ export function ThreadCreationDialog({
   pending,
   defaultAgent,
   defaultSkipPermissions,
+  availableAgents,
+  themeId,
   onCancel,
   onCreate,
 }: {
@@ -23,10 +28,11 @@ export function ThreadCreationDialog({
   pending: boolean;
   defaultAgent: string;
   defaultSkipPermissions: boolean;
+  availableAgents: readonly AgentDefinition[];
+  themeId: ThemeId;
   onCancel(): void;
   onCreate(request: ThreadCreationRequest): void;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
   const [agent, setAgent] = useState(defaultAgent);
   const [skipPermissions, setSkipPermissions] = useState(defaultSkipPermissions);
   const [title, setTitle] = useState("");
@@ -36,11 +42,8 @@ export function ThreadCreationDialog({
   const [base, setBase] = useState("");
   const [path, setPath] = useState("");
   const [worktreeLabel, setWorktreeLabel] = useState("");
-
-  useEffect(() => {
-    dialog.current?.showModal();
-    return () => dialog.current?.close();
-  }, []);
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -57,29 +60,65 @@ export function ThreadCreationDialog({
   const creatingWorktree = locationChoice === "create_worktree";
   const openingWorktree = locationChoice === "open_worktree";
   const selectedAgent = AGENT_KINDS.find((option) => option.kind === agent.trim());
+  const locationLabel = locationChoice === "project"
+    ? "Project default"
+    : locationChoice === "create_worktree"
+      ? "New Worktree"
+      : locationChoice === "open_worktree"
+        ? "Existing Worktree"
+        : worktrees.find((worktree) => `worktree:${worktree.worktree_id}` === locationChoice)?.label ?? "Worktree";
 
   return (
-    <dialog
-      ref={dialog}
-      className="action-dialog creation-dialog"
-      onCancel={(event) => {
-        event.preventDefault();
-        if (!pending) onCancel();
-      }}
+    <TaskSurface
+      title="New thread"
+      context={project.name}
+      className="creation-dialog"
+      busy={pending}
+      activity={pending ? <WorkingActivity themeId={themeId} /> : undefined}
+      initialFocusRef={promptRef}
+      onClose={onCancel}
+      onSubmit={submit}
+      actions={
+        <>
+          <button className="surface-button secondary" type="button" disabled={pending} onClick={onCancel}>Cancel</button>
+          <button className="surface-button primary" type="submit" disabled={pending}>
+            {pending ? "Starting…" : "Start Thread"}
+          </button>
+        </>
+      }
     >
-      <form onSubmit={submit}>
-        <div className="action-dialog-content">
-          <span className="action-dialog-icon creation" aria-hidden="true"><PlusIcon /></span>
-          <div>
-            <h2>New thread</h2>
-            <p>Start an agent in {project.name} as a dedicated Thread.</p>
-          </div>
-        </div>
+      <label className="quick-thread-prompt">
+        <span>What should {selectedAgent?.label ?? agent} work on?</span>
+        <textarea
+          ref={promptRef}
+          value={prompt}
+          rows={7}
+          placeholder="Describe the task…"
+          onChange={(event) => setPrompt(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }
+          }}
+        />
+      </label>
 
-        <div className="creation-fields">
+      <button
+        className="thread-options-summary secondary"
+        type="button"
+        aria-expanded={optionsOpen}
+        onClick={() => setOptionsOpen((open) => !open)}
+      >
+        <span>{selectedAgent?.label ?? agent} · {locationLabel}{skipPermissions ? " · permissions skipped" : ""}</span>
+        <strong>{optionsOpen ? "Hide options" : "Options"}</strong>
+      </button>
+
+      {optionsOpen && (
+        <div className="creation-fields quick-thread-options">
           <label>
             <span>Agent</span>
-            <AgentPicker value={agent} onChange={setAgent} />
+            <AgentPicker options={availableAgents} value={agent} onChange={setAgent} />
           </label>
 
           <label className={`creation-toggle ${selectedAgent ? "" : "unavailable"}`}>
@@ -155,33 +194,28 @@ export function ThreadCreationDialog({
             </div>
           )}
 
-          <label>
-            <span>Initial message <small>Optional</small></span>
-            <textarea
-              value={prompt}
-              rows={5}
-              placeholder="What should the agent work on?"
-              onChange={(event) => setPrompt(event.target.value)}
-            />
-          </label>
         </div>
+      )}
 
-        {error && <p className="action-dialog-error">{error}</p>}
-        <footer>
-          <button className="secondary" type="button" disabled={pending} onClick={onCancel}>Cancel</button>
-          <button type="submit" disabled={pending}>{pending ? "Starting…" : "Create"}</button>
-        </footer>
-      </form>
-    </dialog>
+      {error && <p className="surface-error">{error}</p>}
+    </TaskSurface>
   );
 }
 
-function AgentPicker({ value, onChange }: { value: string; onChange(value: string): void }) {
+function AgentPicker({
+  options: availableOptions,
+  value,
+  onChange,
+}: {
+  options: readonly AgentDefinition[];
+  value: string;
+  onChange(value: string): void;
+}) {
   const root = useRef<HTMLDivElement>(null);
   const listId = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const options = AGENT_KINDS.filter(({ kind, label }) =>
+  const options = availableOptions.filter(({ kind, label }) =>
     !query || kind.includes(query) || label.toLowerCase().includes(query)
   );
 

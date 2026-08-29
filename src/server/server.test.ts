@@ -124,7 +124,7 @@ describe("Thread creation", () => {
       herdrSocketPath: "/tmp/herdr-test.sock",
       statePath: ":memory:",
       allowedOrigins: new Set(),
-    }, herdr, session, threads);
+    }, herdr, session, threads, undefined, async () => ["codex"]);
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const port = (server.address() as AddressInfo).port;
 
@@ -159,6 +159,60 @@ describe("Thread creation", () => {
           location: { kind: "project" },
         }),
       }));
+      expect(requestRefresh).toHaveBeenCalledOnce();
+
+      const unavailable = await fetch(
+        `http://127.0.0.1:${port}/api/projects/${projected.projects![0].project_id}/threads`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agent: "pi", location: { kind: "project" } }),
+        },
+      );
+      expect(unavailable.status).toBe(409);
+      expect(await unavailable.json()).toEqual({ error: "pi is not available on this Control Host" });
+      expect(createThread).toHaveBeenCalledTimes(1);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+});
+
+describe("Thread messages", () => {
+  it("acknowledges a native Herdr prompt for an active Thread", async () => {
+    const threads = new ThreadManager({ path: ":memory:" });
+    const projected = threads.reconcile(agentSnapshot("session-1"));
+    const promptThread = vi.fn(async () => undefined);
+    const herdr = { promptThread } as unknown as HerdrAdapter;
+    const requestRefresh = vi.fn();
+    const session: SessionStateFeed = {
+      current: () => ({ status: "live", revision: 1, snapshot: projected }),
+      subscribe: () => () => undefined,
+      requestRefresh,
+      close: () => undefined,
+    };
+    const server = createControlServer({
+      host: "127.0.0.1",
+      port: 0,
+      herdrBinary: "herdr",
+      herdrSocketPath: "/tmp/herdr-test.sock",
+      statePath: ":memory:",
+      allowedOrigins: new Set(),
+    }, herdr, session, threads);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const thread = projected.threads![0];
+      const response = await fetch(`http://127.0.0.1:${port}/api/threads/${thread.thread_id}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "  Continue with the fix.\n" }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ acknowledged: true });
+      expect(promptThread).toHaveBeenCalledExactlyOnceWith("w1:p1", "  Continue with the fix.\n");
       expect(requestRefresh).toHaveBeenCalledOnce();
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
@@ -263,6 +317,36 @@ describe("Control Host management", () => {
       expect(removed.status).toBe(204);
       expect((await (await fetch(`${base}/api/control-hosts`)).json() as { hosts: unknown[] }).hosts)
         .toHaveLength(1);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+});
+
+describe("Agent availability", () => {
+  it("reports the Control-supported agents discovered on this bridge host", async () => {
+    const threads = new ThreadManager({ path: ":memory:" });
+    const session: SessionStateFeed = {
+      current: () => ({ status: "live", revision: 1, snapshot }),
+      subscribe: () => () => undefined,
+      close: () => undefined,
+    };
+    const herdr = { snapshot: async () => snapshot } as unknown as HerdrAdapter;
+    const server = createControlServer({
+      host: "127.0.0.1",
+      port: 0,
+      herdrBinary: "herdr",
+      herdrSocketPath: "/tmp/herdr-test.sock",
+      statePath: ":memory:",
+      allowedOrigins: new Set(),
+    }, herdr, session, threads, undefined, async () => ["codex", "pi"]);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/api/agents`);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ agents: ["codex", "pi"] });
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }

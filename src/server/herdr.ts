@@ -290,6 +290,14 @@ export class HerdrAdapter {
     }
   }
 
+  /** Submits one message through Herdr's agent-aware input path. */
+  async promptThread(paneId: string, text: string): Promise<void> {
+    await this.socketRequest(this.socketPath, "agent.prompt", {
+      target: paneId,
+      text,
+    });
+  }
+
   /** Creates one dedicated Herdr tab, starts its agent, then optionally prompts it. */
   async createThread(request: HerdrThreadCreationRequest): Promise<ThreadCreationResult> {
     const title = creationTitle(request.creation);

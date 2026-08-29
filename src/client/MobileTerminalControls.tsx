@@ -3,11 +3,12 @@ import { useEffect, useRef, useState } from "react";
 const MOBILE_INPUT_QUERY = "(pointer: coarse)";
 
 interface Props {
-  active: boolean;
+  terminalActive: boolean;
+  messageAvailable: boolean;
   paneLabel: string;
   onFocusTerminal: () => void;
   onKey: (data: string) => boolean;
-  onSendMessage: (text: string) => boolean;
+  onSendMessage: (text: string) => Promise<void>;
 }
 
 const KEYS: ReadonlyArray<{ label: string; key: string; name?: string }> = [
@@ -20,12 +21,21 @@ const KEYS: ReadonlyArray<{ label: string; key: string; name?: string }> = [
   { label: "→", key: "right", name: "Right arrow" },
 ];
 
-export function MobileTerminalControls({ active, paneLabel, onFocusTerminal, onKey, onSendMessage }: Props) {
+export function MobileTerminalControls({
+  terminalActive,
+  messageAvailable,
+  paneLabel,
+  onFocusTerminal,
+  onKey,
+  onSendMessage,
+}: Props) {
   const mobile = useMediaQuery(MOBILE_INPUT_QUERY);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [keysOpen, setKeysOpen] = useState(false);
   const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string>();
 
   useEffect(() => {
     if (composerOpen) textareaRef.current?.focus();
@@ -33,10 +43,19 @@ export function MobileTerminalControls({ active, paneLabel, onFocusTerminal, onK
 
   if (!mobile) return null;
 
-  const send = () => {
-    if (!onSendMessage(draft)) return;
-    setDraft("");
-    setComposerOpen(false);
+  const send = async () => {
+    if (!messageAvailable || sending || draft.trim().length === 0) return;
+    setSending(true);
+    setSendError(undefined);
+    try {
+      await onSendMessage(draft);
+      setDraft("");
+      setComposerOpen(false);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : "Message failed");
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -45,14 +64,14 @@ export function MobileTerminalControls({ active, paneLabel, onFocusTerminal, onK
         <button className="message-trigger" onClick={() => {
           setKeysOpen(false);
           setComposerOpen(true);
-        }} disabled={!active}>
+        }} disabled={!messageAvailable}>
           Message
         </button>
         <button className="terminal-key menu-trigger" onClick={() => {
           setComposerOpen(false);
           setKeysOpen(true);
-        }} disabled={!active}>Keys</button>
-        <button className="terminal-key" aria-label="Open direct keyboard" onClick={onFocusTerminal} disabled={!active}>
+        }} disabled={!terminalActive}>Keys</button>
+        <button className="terminal-key" aria-label="Open direct keyboard" onClick={onFocusTerminal} disabled={!terminalActive}>
           ⌨
         </button>
       </nav>
@@ -65,7 +84,7 @@ export function MobileTerminalControls({ active, paneLabel, onFocusTerminal, onK
             <header>
               <div>
                 <h2 id="terminal-keys-title">Terminal keys</h2>
-                <small>{active ? `Connected to ${paneLabel}` : "Terminal control unavailable"}</small>
+                <small>{terminalActive ? `Connected to ${paneLabel}` : "Terminal control unavailable"}</small>
               </div>
               <button className="secondary icon-button" onClick={() => setKeysOpen(false)} aria-label="Close terminal keys">×</button>
             </header>
@@ -76,7 +95,7 @@ export function MobileTerminalControls({ active, paneLabel, onFocusTerminal, onK
                   key={key.label}
                   aria-label={key.name ?? key.label}
                   onClick={() => onKey(key.key)}
-                  disabled={!active}
+                  disabled={!terminalActive}
                 >
                   {key.label}
                 </button>
@@ -96,8 +115,8 @@ export function MobileTerminalControls({ active, paneLabel, onFocusTerminal, onK
               <div>
                 <h2 id="message-title">Send message</h2>
                 <small className="message-destination">
-                  <span className={`message-connection-dot ${active ? "connected" : ""}`} aria-hidden="true" />
-                  {active ? `Connected to ${paneLabel}` : "Terminal control unavailable"}
+                  <span className={`message-connection-dot ${messageAvailable ? "connected" : ""}`} aria-hidden="true" />
+                  {messageAvailable ? `Sending to ${paneLabel}` : "No active Thread"}
                 </small>
               </div>
               <button className="secondary icon-button" onClick={() => setComposerOpen(false)} aria-label="Close message composer">×</button>
@@ -107,7 +126,11 @@ export function MobileTerminalControls({ active, paneLabel, onFocusTerminal, onK
               <textarea
                 ref={textareaRef}
                 value={draft}
-                onChange={(event) => setDraft(event.target.value)}
+                onChange={(event) => {
+                  setDraft(event.target.value);
+                  setSendError(undefined);
+                }}
+                disabled={sending}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                     event.preventDefault();
@@ -118,9 +141,12 @@ export function MobileTerminalControls({ active, paneLabel, onFocusTerminal, onK
                 rows={7}
               />
             </label>
+            {sendError && <p className="notice error" role="alert">{sendError}</p>}
             <footer>
               <small><kbd>Ctrl</kbd><span>/</span><kbd>⌘</kbd><span>+</span><kbd>Enter</kbd></small>
-              <button onClick={send} disabled={!active || draft.trim().length === 0}>Send</button>
+              <button onClick={() => void send()} disabled={!messageAvailable || sending || draft.trim().length === 0}>
+                {sending ? "Sending…" : sendError ? "Retry" : "Send"}
+              </button>
             </footer>
           </section>
         </div>

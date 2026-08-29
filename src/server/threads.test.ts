@@ -83,6 +83,31 @@ describe("ThreadManager", () => {
     }
   });
 
+  it("retains archived Threads for thirty days and purges them on startup after expiry", () => {
+    const directory = mkdtempSync(join(tmpdir(), "herdr-control-archive-retention-"));
+    const path = join(directory, "control.db");
+    try {
+      let now = "2026-06-01T12:00:00.000Z";
+      const first = new ThreadManager({ path, createId: ids(), now: () => now });
+      first.reconcile(snapshot());
+      first.reconcile(emptySnapshot());
+      expect(first.list()).toHaveLength(1);
+      first.close();
+
+      now = "2026-06-30T12:00:00.000Z";
+      const retained = new ThreadManager({ path, createId: ids(), now: () => now });
+      expect(retained.list()).toHaveLength(1);
+      retained.close();
+
+      now = "2026-07-02T12:00:00.000Z";
+      const expired = new ThreadManager({ path, createId: ids(), now: () => now });
+      expect(expired.list()).toHaveLength(0);
+      expired.close();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("adopts an agent pane once and projects durable IDs onto it", () => {
     const threads = new ThreadManager({ path: ":memory:", createId: ids(), now: () => "2026-08-19T12:00:00.000Z" });
 

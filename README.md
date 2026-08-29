@@ -30,10 +30,13 @@ still change.
   their underlying processes.
 - Type, paste text or clipboard images, send modified keys, resize, scroll, and
   open HTTP or HTTPS links from desktop or phone layouts.
+- Send mobile messages through Herdr's agent-aware prompt command without taking
+  terminal control. Failed messages remain in the composer for retry.
 - Observe a terminal controlled by another browser, explicitly take control,
   and recover control after reconnecting.
 - Archive agent threads and restore supported conversations when Herdr has
-  captured a resumable session reference.
+  captured a resumable session reference. The main view keeps 7 days of recent
+  history, the archive keeps 30 days, then Control permanently removes it.
 - Choose from eight light and dark themes and customise interface fonts,
   terminal fonts, text sizes, cursor behaviour, and new-thread defaults.
 
@@ -41,6 +44,10 @@ Control discovers Projects and Worktrees from Herdr's repository inventory. To
 start a thread from Control, first open a Herdr workspace associated with the
 repository. Projects and thread history then remain available even as Herdr's
 workspace, tab, and pane layout changes.
+
+Each bridge checks its own executable `PATH` and reports which Control-supported
+agents it can launch. New-thread controls use the inventory from the Project's
+host, so different Herdr machines can offer different agents.
 
 ### Current limitations
 
@@ -151,6 +158,10 @@ herdr integration install pi
 Restoration is offered only after Herdr reports a supported provider session
 reference. A thread leaves the active view immediately when archived, even if
 Herdr must wait for its worktree before safely retiring the pane.
+
+The Project list shows archived Threads for 7 days. The full archive screen
+retains restorable Threads for 30 days. Control permanently deletes them after
+that fixed retention period.
 
 ## Control Hosts
 

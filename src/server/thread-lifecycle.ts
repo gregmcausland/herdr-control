@@ -5,20 +5,22 @@ import type {
   ThreadInfo,
 } from "../shared/protocol.js";
 import type { HerdrAdapter } from "./herdr.js";
-import type { ThreadManager } from "./threads.js";
+import { ThreadNotFoundError, type ThreadManager } from "./threads.js";
 
 export class ProjectNotFoundError extends Error {}
 export class WorktreeNotFoundError extends Error {}
 export class PaneNotFoundError extends Error {}
 export class PaneNotDeletableError extends Error {}
+export class ThreadNotPromptableError extends Error {}
 
-type ThreadLifecycleHerdr = Pick<HerdrAdapter, "createThread" | "snapshot">;
+type ThreadLifecycleHerdr = Pick<HerdrAdapter, "createThread" | "promptThread" | "snapshot">;
 type ThreadLifecycleStore = Pick<
   ThreadManager,
   | "archive"
   | "deletePane"
   | "deleteThread"
   | "getProject"
+  | "getThread"
   | "getWorktree"
   | "listWorktrees"
   | "reconcile"
@@ -75,6 +77,16 @@ export class ThreadLifecycleService {
     const thread = await this.threads.restore(threadId);
     this.requestRefresh();
     return thread;
+  }
+
+  async prompt(threadId: string, text: string): Promise<void> {
+    const thread = this.threads.getThread(threadId);
+    if (!thread) throw new ThreadNotFoundError(`Thread ${threadId} was not found`);
+    if (thread.lifecycle !== "open" || !thread.current_run) {
+      throw new ThreadNotPromptableError("This Thread has no active agent");
+    }
+    await this.herdr.promptThread(thread.current_run.pane_id, text);
+    this.requestRefresh();
   }
 
   async deleteThread(threadId: string): Promise<void> {

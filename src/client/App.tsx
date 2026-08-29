@@ -1,12 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { AGENT_KINDS } from "../shared/agents";
 import type { PaneInfo } from "../shared/protocol";
 import { TerminalView } from "./TerminalView";
 import { PlusIcon, ThreadCreationDialog } from "./ThreadCreationDialog";
+import { ThreadLaunchMenu } from "./ThreadLaunchMenu";
 import { SettingsDialog, SettingsIcon } from "./SettingsDialog";
 import { ControlHostsDialog, HostsIcon } from "./ControlHostsDialog";
+import { ConfirmSurface } from "./Surface";
 import { applyFontSettings, readAppSettings, storeAppSettings } from "./settings";
 import { applyAppTheme } from "./theme";
 import { WorkingActivity } from "./WorkingActivity";
+import { ArchiveIcon, ArchiveScreen, ArchivedThreadList } from "./ArchiveScreen";
 import { workingDuration } from "./working-duration";
 import { useControlOrchestration, type PaneAction } from "./orchestration-state";
 
@@ -48,54 +52,23 @@ function PaneActionDialog({
   onCancel(): void;
   onConfirm(): void;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
   const archive = action.kind === "archive";
 
-  useEffect(() => {
-    dialog.current?.showModal();
-    return () => dialog.current?.close();
-  }, []);
-
   return (
-    <dialog
-      ref={dialog}
-      className="action-dialog"
-      onCancel={(event) => {
-        event.preventDefault();
-        if (!pending) onCancel();
-      }}
-    >
-      <div className="action-dialog-content">
-        <span className={`action-dialog-icon ${archive ? "archive" : "delete"}`} aria-hidden="true">
-          {archive ? <ArchiveIcon /> : <TrashIcon />}
-        </span>
-        <div>
-          <h2>{archive ? "Archive thread?" : action.thread ? "Delete thread?" : "Delete pane?"}</h2>
-          <p>
-            {archive
-              ? `${paneTitle(action.pane)} will leave the active view and can be restored later. Its terminal will retire when safe.`
-              : action.thread
-                ? `${paneTitle(action.pane)} cannot be resumed yet. The Thread will be permanently removed from Control and its terminal will retire when safe.`
-                : `${paneTitle(action.pane)} will be removed from Control and its terminal will retire when safe.`}
-          </p>
-          {error && <p className="action-dialog-error">{error}</p>}
-        </div>
-      </div>
-      <footer>
-        <button className="secondary" type="button" disabled={pending} onClick={onCancel}>Cancel</button>
-        <button type="button" disabled={pending} onClick={onConfirm}>
-          {pending ? "Working…" : archive ? "Archive" : "Delete"}
-        </button>
-      </footer>
-    </dialog>
-  );
-}
-
-function ArchiveIcon() {
-  return (
-    <svg viewBox="0 0 24 24">
-      <path d="M4 7.5h16M6 7.5V19h12V7.5M9 11h6M5 4h14v3.5H5Z" />
-    </svg>
+    <ConfirmSurface
+      title={archive ? "Archive thread?" : action.thread ? "Delete thread?" : "Delete pane?"}
+      message={archive
+        ? `${paneTitle(action.pane)} will leave the active view and can be restored later. Its terminal will retire when safe.`
+        : action.thread
+          ? `${paneTitle(action.pane)} cannot be resumed yet. The thread will be permanently removed from Control and its terminal will retire when safe.`
+          : `${paneTitle(action.pane)} will be removed from Control and its terminal will retire when safe.`}
+      confirmLabel={archive ? "Archive" : "Delete"}
+      error={error}
+      busy={pending}
+      tone={archive ? "neutral" : "destructive"}
+      onClose={onCancel}
+      onConfirm={onConfirm}
+    />
   );
 }
 
@@ -123,22 +96,36 @@ export function App() {
   const {
     hostConfiguration,
     liveSessions,
+    agentInventories,
     projectGroups,
     archivedThreads,
+    recentArchivedThreads,
     activePane,
     terminalSelection,
     settingsOpen,
     hostsOpen,
+    archiveOpen,
     paneAction,
     pendingAction,
     actionError,
     restoringThreadKey,
+    creationLauncherTarget,
     creationTarget,
+    creationAgent,
     creationPending,
     creationError,
   } = control;
   const [settings, setSettings] = useState(readAppSettings);
   const [clock, setClock] = useState(Date.now);
+  const availableAgents = AGENT_KINDS.filter((agent) => Object.values(agentInventories).some(
+    (inventory) => inventory.status === "ready" && inventory.agents.includes(agent.kind),
+  ));
+  const launcherInventory = creationLauncherTarget
+    ? agentInventories[creationLauncherTarget.host.url]
+    : undefined;
+  const creationInventory = creationTarget
+    ? agentInventories[creationTarget.host.url]
+    : undefined;
   const hasWorkingDuration = liveSessions.some((feed) => feed.snapshot?.panes.some(
     (pane) => pane.agent_status === "working" && pane.working_started_at,
   ));
@@ -256,7 +243,7 @@ export function App() {
                       disabled={feedStatus !== "live"}
                       aria-label={`New Thread in ${project.name} on ${host.label}`}
                       title={`New Thread in ${project.name} on ${host.label}`}
-                      onClick={() => control.openCreation({ host, project, snapshot })}
+                      onClick={() => control.openCreationLauncher({ host, project, snapshot })}
                     >
                       <PlusIcon />
                     </button>
@@ -308,35 +295,17 @@ export function App() {
           })}
           {archivedThreads.length > 0 && (
             <section className="workspace-group archived-group">
-              <h3 className="workspace-divider">Archived</h3>
-              <div className="pane-list archived-list">
-                {archivedThreads.map((archived) => {
-                  const { thread } = archived;
-                  return (
-                    <div className="archived-thread" key={archived.key}>
-                      <span className="archived-thread-icon" aria-hidden="true"><ArchiveIcon /></span>
-                      <span className="archived-thread-title">
-                        {thread.title}
-                        <small>{archived.host.label}</small>
-                      </span>
-                      {thread.agent_session && !thread.current_run && (
-                        <button
-                          className="secondary archived-restore"
-                          type="button"
-                          disabled={
-                            archived.feedStatus !== "live"
-                            || thread.restoring
-                            || restoringThreadKey === archived.key
-                          }
-                          onClick={() => void control.restoreThread(archived)}
-                        >
-                          {thread.restoring || restoringThreadKey === archived.key ? "Restoring…" : "Restore"}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+              <h3 className="workspace-divider archived-divider">
+                <span>{recentArchivedThreads.length > 0 ? "Recently archived" : "Archive"}</span>
+                <button className="archive-open" type="button" onClick={control.openArchive}>View archive</button>
+              </h3>
+              {recentArchivedThreads.length > 0 && (
+                <ArchivedThreadList
+                  threads={recentArchivedThreads}
+                  restoringThreadKey={restoringThreadKey}
+                  onRestore={(archived) => void control.restoreThread(archived)}
+                />
+              )}
             </section>
           )}
         </section>
@@ -344,6 +313,7 @@ export function App() {
       {settingsOpen && (
         <SettingsDialog
           settings={settings}
+          availableAgents={availableAgents}
           onCancel={control.closeSettings}
           onSave={(nextSettings) => {
             setSettings(nextSettings);
@@ -358,6 +328,14 @@ export function App() {
           onClose={control.closeHosts}
         />
       )}
+      {archiveOpen && (
+        <ArchiveScreen
+          threads={archivedThreads}
+          restoringThreadKey={restoringThreadKey}
+          onRestore={(archived) => void control.restoreThread(archived)}
+          onClose={control.closeArchive}
+        />
+      )}
       {paneAction && (
         <PaneActionDialog
           action={paneAction}
@@ -365,6 +343,22 @@ export function App() {
           pending={pendingAction}
           onCancel={control.cancelPaneAction}
           onConfirm={() => void control.confirmPaneAction()}
+        />
+      )}
+      {creationLauncherTarget && (
+        <ThreadLaunchMenu
+          project={creationLauncherTarget.project}
+          agents={AGENT_KINDS.filter((agent) => (
+            launcherInventory?.status === "ready" && launcherInventory.agents.includes(agent.kind)
+          ))}
+          message={launcherInventory?.status === "error"
+            ? launcherInventory.message
+            : launcherInventory?.status === "loading" || !launcherInventory
+              ? "Checking this host for agents…"
+              : undefined}
+          defaultAgent={settings.defaultAgent}
+          onCancel={control.cancelCreationLauncher}
+          onSelect={(agent) => control.openCreation(creationLauncherTarget, agent)}
         />
       )}
       {creationTarget && (
@@ -375,8 +369,12 @@ export function App() {
           )}
           error={creationError}
           pending={creationPending}
-          defaultAgent={settings.defaultAgent}
+          defaultAgent={creationAgent ?? settings.defaultAgent}
           defaultSkipPermissions={settings.defaultSkipPermissions}
+          availableAgents={AGENT_KINDS.filter((agent) => (
+            creationInventory?.status === "ready" && creationInventory.agents.includes(agent.kind)
+          ))}
+          themeId={settings.theme}
           onCancel={control.cancelCreation}
           onCreate={(request) => void control.createThread(request)}
         />

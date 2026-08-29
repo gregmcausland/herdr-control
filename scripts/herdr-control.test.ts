@@ -17,6 +17,8 @@ describe("managed installation", () => {
     expect(unit).toContain('ExecStart="/home/user/.local/bin/node" "/home/user/Herdr Control/dist/server/server/index.js"');
     expect(unit).toContain("EnvironmentFile=-/home/user/.config/herdr-control/environment");
     expect(unit).toContain("Restart=on-failure");
+    expect(unit).not.toContain("After=herdr.service");
+    expect(unit).not.toContain("Wants=network-online.target");
   });
 
   it("preserves Control settings from an existing service", () => {

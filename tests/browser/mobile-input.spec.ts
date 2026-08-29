@@ -4,7 +4,7 @@ const clientUrl = process.env.HERDR_CONTROL_TEST_CLIENT;
 
 const snapshot = {
   version: "test",
-  protocol: 1,
+  protocol: 19,
   workspaces: [{ workspace_id: "w1", label: "Test", number: 1, tab_count: 1, pane_count: 1, focused: true }],
   tabs: [{ tab_id: "w1:t1", workspace_id: "w1", label: "Test", number: 1, pane_count: 1, focused: true }],
   panes: [{
@@ -37,6 +37,24 @@ const snapshot = {
       agent_status: "done",
       started_at: "2026-08-19T12:00:00.000Z",
     },
+  }, {
+    thread_id: "thread-recent",
+    title: "Recent archived thread",
+    agent: "codex",
+    agent_session: { source: "herdr:codex", agent: "codex", kind: "id", value: "recent-session" },
+    lifecycle: "archived",
+    created_at: "2026-08-28T12:00:00.000Z",
+    updated_at: "2026-08-28T12:00:00.000Z",
+    archived_at: "2026-08-28T12:00:00.000Z",
+  }, {
+    thread_id: "thread-older",
+    title: "Older archived thread",
+    agent: "codex",
+    agent_session: { source: "herdr:codex", agent: "codex", kind: "id", value: "older-session" },
+    lifecycle: "archived",
+    created_at: "2026-08-10T12:00:00.000Z",
+    updated_at: "2026-08-10T12:00:00.000Z",
+    archived_at: "2026-08-10T12:00:00.000Z",
   }],
 };
 
@@ -109,6 +127,22 @@ test("restores a routed terminal after refresh and follows browser history", asy
   await expect(page.getByRole("button", { name: "Open Test pane on Custom host" })).toBeVisible();
 });
 
+test("shows recent archive history on the main screen and all retained Threads in the archive", async ({ page }) => {
+  test.skip(!clientUrl, "A running browser client is required");
+  await mockTerminal(page, []);
+  await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
+
+  await expect(page.locator(".archived-thread-title", { hasText: "Recent archived thread" })).toBeVisible();
+  await expect(page.locator(".archived-thread-title", { hasText: "Older archived thread" })).toHaveCount(0);
+  await page.getByRole("button", { name: "View archive" }).click();
+
+  const archive = page.getByRole("dialog", { name: "Archive" });
+  await expect(archive.locator(".archived-thread-title", { hasText: "Recent archived thread" })).toBeVisible();
+  await expect(archive.locator(".archived-thread-title", { hasText: "Older archived thread" })).toBeVisible();
+  expect(await archive.boundingBox()).toEqual({ x: 0, y: 0, width: 1280, height: 720 });
+  await page.screenshot({ path: "test-results/archive-screen.png", fullPage: true });
+});
+
 test("reclaims uncontested control when returning to a backgrounded terminal", async ({ page }) => {
   test.skip(!clientUrl, "A running browser client is required");
   const sent: Array<{ type: string }> = [];
@@ -177,6 +211,15 @@ test("offers local message composition and terminal keys only on mobile", async 
   });
   const sent: Array<{ type: string; data?: string; key?: string }> = [];
   const page = await openTerminal(mobile, sent);
+  const prompts: string[] = [];
+  let acknowledge!: () => void;
+  const acknowledged = new Promise<void>((resolve) => (acknowledge = resolve));
+  await page.route("**/api/threads/thread-test/messages", async (route) => {
+    const body = route.request().postDataJSON() as { text: string };
+    prompts.push(body.text);
+    await acknowledged;
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ acknowledged: true }) });
+  });
 
   const controls = page.getByRole("navigation", { name: "Terminal controls" });
   await expect(controls).toBeVisible();
@@ -191,10 +234,12 @@ test("offers local message composition and terminal keys only on mobile", async 
   await page.screenshot({ path: "test-results/mobile-composer.png", fullPage: true });
   await page.getByRole("button", { name: "Send", exact: true }).click();
 
-  await expect.poll(() => sent.filter((message) => message.type === "input").map((message) => message.data)).toEqual([
-    "A locally edited\rmessage",
-  ]);
-  await expect.poll(() => sent.at(-1)).toMatchObject({ type: "key", key: "enter" });
+  await expect(page.getByRole("button", { name: "Sending…", exact: true })).toBeDisabled();
+  await expect(composer).toHaveValue("A locally edited\nmessage");
+  acknowledge();
+  await expect.poll(() => prompts).toEqual(["A locally edited\nmessage"]);
+  await expect(page.getByRole("dialog", { name: "Send message" })).toHaveCount(0);
+  expect(sent.filter((message) => message.type === "input" || message.type === "key")).toEqual([]);
   await page.getByRole("button", { name: "Keys", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Terminal keys" })).toBeVisible();
   await page.getByRole("button", { name: "Esc", exact: true }).click();
@@ -217,4 +262,50 @@ test("offers local message composition and terminal keys only on mobile", async 
   expect(Number(new URL(opened[0]).searchParams.get("cols"))).toBeLessThanOrEqual(140);
   expect(await desktopPage.locator(".terminal-frame").evaluate((element) => element.getBoundingClientRect().width)).toBe(980);
   await desktop.close();
+});
+
+test("keeps a failed message ready to retry without terminal control", async ({ browser }) => {
+  test.skip(!clientUrl, "A running browser client is required");
+  const mobile = await browser.newContext({
+    hasTouch: true,
+    isMobile: true,
+    viewport: { width: 390, height: 844 },
+  });
+  const page = await mobile.newPage();
+  let attempts = 0;
+  await page.route("**/api/session/events", (route) => route.fulfill({
+    contentType: "text/event-stream",
+    body: `data: ${JSON.stringify({ status: "live", revision: 1, snapshot })}\n\n`,
+  }));
+  await page.routeWebSocket(/\/api\/terminal/, () => undefined);
+  await page.route("**/api/threads/thread-test/messages", async (route) => {
+    attempts += 1;
+    if (attempts === 1) {
+      await route.fulfill({
+        status: 502,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Herdr prompt was interrupted" }),
+      });
+      return;
+    }
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ acknowledged: true }) });
+  });
+
+  try {
+    await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
+    await page.getByRole("button", { name: "Open Test pane on Custom host" }).click();
+    await expect(page.locator(".terminal-header small")).toHaveText("Acquiring control…");
+    await page.getByRole("button", { name: "Message" }).click();
+    const composer = page.getByPlaceholder("Prepare a message locally…");
+    await composer.fill("Retry this exact message");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+
+    await expect(page.getByRole("alert")).toHaveText("Herdr prompt was interrupted");
+    await expect(composer).toHaveValue("Retry this exact message");
+    await page.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Send message" })).toHaveCount(0);
+    expect(attempts).toBe(2);
+  } finally {
+    await mobile.close();
+  }
 });

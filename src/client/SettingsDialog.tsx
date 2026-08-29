@@ -1,24 +1,21 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import { AGENT_KINDS } from "./agent-catalog";
+import { useState, type FormEvent } from "react";
+import type { AgentDefinition } from "../shared/agents";
 import { DEFAULT_SETTINGS, type AppSettings } from "./settings";
+import { TaskSurface } from "./Surface";
 import { isThemeId, themeOptions } from "./theme";
 
 export function SettingsDialog({
   settings,
+  availableAgents,
   onCancel,
   onSave,
 }: {
   settings: AppSettings;
+  availableAgents: readonly AgentDefinition[];
   onCancel(): void;
   onSave(settings: AppSettings): void;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
   const [draft, setDraft] = useState(settings);
-
-  useEffect(() => {
-    dialog.current?.showModal();
-    return () => dialog.current?.close();
-  }, []);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -30,24 +27,24 @@ export function SettingsDialog({
   }
 
   return (
-    <dialog
-      ref={dialog}
-      className="action-dialog settings-dialog"
-      onCancel={(event) => {
-        event.preventDefault();
-        onCancel();
-      }}
+    <TaskSurface
+      title="Settings"
+      description="Appearance and defaults for new threads."
+      className="settings-dialog"
+      onClose={onCancel}
+      onSubmit={submit}
+      actions={
+        <>
+          <button className="surface-button secondary settings-reset" type="button" onClick={() => setDraft(DEFAULT_SETTINGS)}>
+            Reset defaults
+          </button>
+          <span className="surface-action-spacer" />
+          <button className="surface-button secondary" type="button" onClick={onCancel}>Cancel</button>
+          <button className="surface-button primary" type="submit">Save</button>
+        </>
+      }
     >
-      <form onSubmit={submit}>
-        <div className="action-dialog-content">
-          <span className="action-dialog-icon settings" aria-hidden="true"><SettingsIcon /></span>
-          <div>
-            <h2>Settings</h2>
-            <p>Choose your appearance and defaults for new threads.</p>
-          </div>
-        </div>
-
-        <div className="settings-sections">
+      <div className="settings-sections">
           <fieldset>
             <legend>New threads</legend>
             <div className="settings-fields">
@@ -57,10 +54,10 @@ export function SettingsDialog({
                   value={draft.defaultAgent}
                   onChange={(event) => setDraft({ ...draft, defaultAgent: event.target.value })}
                 >
-                  {!AGENT_KINDS.some(({ kind }) => kind === draft.defaultAgent) && (
-                    <option value={draft.defaultAgent}>{draft.defaultAgent}</option>
+                  {!availableAgents.some(({ kind }) => kind === draft.defaultAgent) && (
+                    <option value={draft.defaultAgent}>{draft.defaultAgent} (Unavailable)</option>
                   )}
-                  {AGENT_KINDS.map((agent) => (
+                  {availableAgents.map((agent) => (
                     <option value={agent.kind} key={agent.kind}>{agent.label}</option>
                   ))}
                 </select>
@@ -161,18 +158,8 @@ export function SettingsDialog({
               </label>
             </div>
           </fieldset>
-        </div>
-
-        <footer className="settings-footer">
-          <button className="secondary settings-reset" type="button" onClick={() => setDraft(DEFAULT_SETTINGS)}>
-            Reset defaults
-          </button>
-          <span />
-          <button className="secondary" type="button" onClick={onCancel}>Cancel</button>
-          <button type="submit">Save</button>
-        </footer>
-      </form>
-    </dialog>
+      </div>
+    </TaskSurface>
   );
 }
 
