@@ -7,6 +7,7 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import { attachTerminalViewport } from "./terminal-viewport";
 
 interface TaskSurfaceProps {
   title: string;
@@ -14,6 +15,7 @@ interface TaskSurfaceProps {
   description?: string;
   className?: string;
   busy?: boolean;
+  fitViewport?: boolean;
   activity?: ReactNode;
   initialFocusRef?: RefObject<HTMLElement | null>;
   actions: ReactNode;
@@ -29,6 +31,7 @@ export function TaskSurface({
   description,
   className = "",
   busy = false,
+  fitViewport = false,
   activity,
   initialFocusRef,
   actions,
@@ -40,9 +43,11 @@ export function TaskSurface({
   const titleId = useId();
 
   useEffect(() => {
-    dialog.current?.showModal();
-    initialFocusRef?.current?.focus();
-    return () => dialog.current?.close();
+    const element = dialog.current!;
+    const detach = fitViewport ? attachTerminalViewport(element) : undefined;
+    element.showModal();
+    initialFocusRef?.current?.focus({ preventScroll: true });
+    return () => { detach?.(); element.close(); };
   }, []);
 
   const content = (

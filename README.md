@@ -244,6 +244,10 @@ archived conversations across all saved hosts. Building files alone does not upd
 a running bridge process. When working from the checkout used by the service,
 run `npm run control -- install` to build and restart it together. Otherwise a new
 browser client can be served by an old bridge that lacks its conversation API.
+Keep a deployed service in a separate managed checkout from your development
+checkout. That also prevents local builds from replacing the browser files users
+are currently loading. Check `systemctl --user cat herdr-control.service` for the
+checkout your service actually runs.
 
 The browser compatibility suite controls a real, isolated Herdr pane and
 therefore requires explicit endpoints:

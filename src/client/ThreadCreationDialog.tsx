@@ -12,6 +12,7 @@ import { WorkingActivity } from "./WorkingActivity";
 
 export function ThreadCreationDialog({
   project,
+  hostLabel,
   worktrees,
   error,
   pending,
@@ -23,6 +24,7 @@ export function ThreadCreationDialog({
   onCreate,
 }: {
   project: ProjectInfo;
+  hostLabel: string;
   worktrees: WorktreeInfo[];
   error?: string;
   pending: boolean;
@@ -33,7 +35,7 @@ export function ThreadCreationDialog({
   onCancel(): void;
   onCreate(request: ThreadCreationRequest): void;
 }) {
-  const [agent, setAgent] = useState(defaultAgent);
+  const [agent, setAgent] = useState<string>(() => availableAgents.find(option => option.kind === defaultAgent)?.kind ?? availableAgents[0]?.kind ?? "");
   const [skipPermissions, setSkipPermissions] = useState(defaultSkipPermissions);
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -44,9 +46,14 @@ export function ThreadCreationDialog({
   const [worktreeLabel, setWorktreeLabel] = useState("");
   const [optionsOpen, setOptionsOpen] = useState(false);
   const promptRef = useRef<HTMLTextAreaElement>(null);
+  const optionsId = useId();
+  const selectedAgent = availableAgents.find(option => option.kind === agent);
+  const missingPath = locationChoice === "open_worktree" && !path.trim();
+  const canSubmit = !pending && Boolean(selectedAgent) && !missingPath;
 
   function submit(event: FormEvent) {
     event.preventDefault();
+    if (!canSubmit) return;
     const location = creationLocation(locationChoice, { branch, base, path, label: worktreeLabel });
     onCreate({
       agent: agent.trim(),
@@ -59,7 +66,6 @@ export function ThreadCreationDialog({
 
   const creatingWorktree = locationChoice === "create_worktree";
   const openingWorktree = locationChoice === "open_worktree";
-  const selectedAgent = AGENT_KINDS.find((option) => option.kind === agent.trim());
   const locationLabel = locationChoice === "project"
     ? "Project default"
     : locationChoice === "create_worktree"
@@ -72,7 +78,9 @@ export function ThreadCreationDialog({
     <TaskSurface
       title="New thread"
       context={project.name}
+      description={hostLabel}
       className="creation-dialog"
+      fitViewport
       busy={pending}
       activity={pending ? <WorkingActivity themeId={themeId} /> : undefined}
       initialFocusRef={promptRef}
@@ -80,217 +88,130 @@ export function ThreadCreationDialog({
       onSubmit={submit}
       actions={
         <>
+          {(error || missingPath || !selectedAgent) && <p className="surface-error creation-feedback" role="status">{error || (missingPath ? "Enter a checkout path in Options to continue." : "No available agent. Reopen this form when the host is connected.")}</p>}
           <button className="surface-button secondary" type="button" disabled={pending} onClick={onCancel}>Cancel</button>
-          <button className="surface-button primary" type="submit" disabled={pending}>
+          <button className="surface-button primary" type="submit" disabled={!canSubmit}>
             {pending ? "Starting…" : "Start Thread"}
           </button>
         </>
       }
     >
-      <label className="quick-thread-prompt">
-        <span>What should {selectedAgent?.label ?? agent} work on?</span>
-        <textarea
-          ref={promptRef}
-          value={prompt}
-          rows={7}
-          placeholder="Describe the task…"
-          onChange={(event) => setPrompt(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              event.currentTarget.form?.requestSubmit();
-            }
-          }}
-        />
-      </label>
+      <fieldset className="creation-form-fields" disabled={pending}>
+        <label className="quick-thread-prompt">
+          <span>What should {selectedAgent?.label ?? agent} work on?</span>
+          <textarea
+            ref={promptRef}
+            value={prompt}
+            rows={7}
+            placeholder="Describe the task…"
+            onChange={(event) => setPrompt(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.nativeEvent.isComposing && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }
+            }}
+          />
+        </label>
 
-      <button
-        className="thread-options-summary secondary"
-        type="button"
-        aria-expanded={optionsOpen}
-        onClick={() => setOptionsOpen((open) => !open)}
-      >
-        <span>{selectedAgent?.label ?? agent} · {locationLabel}{skipPermissions ? " · permissions skipped" : ""}</span>
-        <strong>{optionsOpen ? "Hide options" : "Options"}</strong>
-      </button>
+        <button
+          className="thread-options-summary secondary"
+          type="button"
+          aria-expanded={optionsOpen}
+          aria-controls={optionsId}
+          onClick={() => setOptionsOpen((open) => !open)}
+        >
+          <span>{selectedAgent?.label ?? agent} · {locationLabel}{skipPermissions ? " · permissions skipped" : ""}</span>
+          <strong>{optionsOpen ? "Hide options" : "Options"}</strong>
+        </button>
 
-      {optionsOpen && (
-        <div className="creation-fields quick-thread-options">
-          <label>
-            <span>Agent</span>
-            <AgentPicker options={availableAgents} value={agent} onChange={setAgent} />
-          </label>
+        {optionsOpen && (
+          <div className="creation-fields quick-thread-options" id={optionsId}>
+            <label>
+              <span>Agent</span>
+              <select value={agent} required onChange={event => setAgent(event.target.value)}>
+                {availableAgents.map(option => <option key={option.kind} value={option.kind}>{option.label}</option>)}
+              </select>
+            </label>
 
-          <label className={`creation-toggle ${selectedAgent ? "" : "unavailable"}`}>
-            <input
-              type="checkbox"
-              checked={skipPermissions && Boolean(selectedAgent)}
-              disabled={!selectedAgent}
-              onChange={(event) => setSkipPermissions(event.target.checked)}
-            />
-            <span>
-              <strong>Skip permission prompts</strong>
-              <small>
-                {selectedAgent?.permissionHelp ?? "No permission-bypass launch mode is configured for this agent."}
-              </small>
-            </span>
-          </label>
+            <label className={`creation-toggle ${selectedAgent ? "" : "unavailable"}`}>
+              <input
+                type="checkbox"
+                checked={skipPermissions && Boolean(selectedAgent)}
+                disabled={!selectedAgent}
+                onChange={(event) => setSkipPermissions(event.target.checked)}
+              />
+              <span>
+                <strong>Skip permission prompts</strong>
+                <small>
+                  {selectedAgent?.permissionHelp ?? "No permission-bypass launch mode is configured for this agent."}
+                </small>
+              </span>
+            </label>
 
-          <label>
-            <span>Title <small>Optional</small></span>
-            <input
-              value={title}
-              maxLength={200}
-              placeholder="Derived from the first message"
-              onChange={(event) => setTitle(event.target.value)}
-            />
-          </label>
+            <label>
+              <span>Title <small>Optional</small></span>
+              <input
+                value={title}
+                maxLength={200}
+                placeholder="Derived from the first message"
+                onChange={(event) => setTitle(event.target.value)}
+              />
+            </label>
 
-          <label>
-            <span>Location</span>
-            <select value={locationChoice} onChange={(event) => setLocationChoice(event.target.value)}>
-              <option value="project">Project default</option>
-              {worktrees.map((worktree) => (
-                <option value={`worktree:${worktree.worktree_id}`} key={worktree.worktree_id}>
-                  {worktree.branch ?? worktree.label} — {worktree.checkout_path}
-                </option>
-              ))}
-              <option value="create_worktree">Create a Worktree…</option>
-              <option value="open_worktree">Open an existing Worktree…</option>
-            </select>
-          </label>
+            <label>
+              <span>Location</span>
+              <select value={locationChoice} onChange={(event) => setLocationChoice(event.target.value)}>
+                <option value="project">Project default</option>
+                {worktrees.map((worktree) => (
+                  <option value={`worktree:${worktree.worktree_id}`} key={worktree.worktree_id}>
+                    {worktree.branch ?? worktree.label} — {worktree.checkout_path}
+                  </option>
+                ))}
+                <option value="create_worktree">Create a Worktree…</option>
+                <option value="open_worktree">Open an existing Worktree…</option>
+              </select>
+            </label>
 
-          {creatingWorktree && (
-            <div className="creation-subfields">
-              <label>
-                <span>Branch <small>Optional</small></span>
-                <input value={branch} placeholder="Herdr can generate one" onChange={(event) => setBranch(event.target.value)} />
-              </label>
-              <label>
-                <span>Base <small>Optional</small></span>
-                <input value={base} placeholder="Current HEAD" onChange={(event) => setBase(event.target.value)} />
-              </label>
-              <label>
-                <span>Checkout path <small>Optional</small></span>
-                <input value={path} placeholder="Managed by Herdr" onChange={(event) => setPath(event.target.value)} />
-              </label>
-              <label>
-                <span>Label <small>Optional</small></span>
-                <input value={worktreeLabel} onChange={(event) => setWorktreeLabel(event.target.value)} />
-              </label>
-            </div>
-          )}
+            {creatingWorktree && (
+              <div className="creation-subfields">
+                <label>
+                  <span>Branch <small>Optional</small></span>
+                  <input value={branch} placeholder="Herdr can generate one" onChange={(event) => setBranch(event.target.value)} />
+                </label>
+                <label>
+                  <span>Base <small>Optional</small></span>
+                  <input value={base} placeholder="Current HEAD" onChange={(event) => setBase(event.target.value)} />
+                </label>
+                <label>
+                  <span>Checkout path <small>Optional</small></span>
+                  <input value={path} placeholder="Managed by Herdr" onChange={(event) => setPath(event.target.value)} />
+                </label>
+                <label>
+                  <span>Label <small>Optional</small></span>
+                  <input value={worktreeLabel} onChange={(event) => setWorktreeLabel(event.target.value)} />
+                </label>
+              </div>
+            )}
 
-          {openingWorktree && (
-            <div className="creation-subfields">
-              <label>
-                <span>Checkout path</span>
-                <input value={path} required placeholder="/path/to/worktree" onChange={(event) => setPath(event.target.value)} />
-              </label>
-              <label>
-                <span>Label <small>Optional</small></span>
-                <input value={worktreeLabel} onChange={(event) => setWorktreeLabel(event.target.value)} />
-              </label>
-            </div>
-          )}
+            {openingWorktree && (
+              <div className="creation-subfields">
+                <label>
+                  <span>Checkout path</span>
+                  <input value={path} required placeholder="/path/to/worktree" onChange={(event) => setPath(event.target.value)} />
+                </label>
+                <label>
+                  <span>Label <small>Optional</small></span>
+                  <input value={worktreeLabel} onChange={(event) => setWorktreeLabel(event.target.value)} />
+                </label>
+              </div>
+            )}
 
-        </div>
-      )}
+          </div>
+        )}
 
-      {error && <p className="surface-error">{error}</p>}
+      </fieldset>
     </TaskSurface>
-  );
-}
-
-function AgentPicker({
-  options: availableOptions,
-  value,
-  onChange,
-}: {
-  options: readonly AgentDefinition[];
-  value: string;
-  onChange(value: string): void;
-}) {
-  const root = useRef<HTMLDivElement>(null);
-  const listId = useId();
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const options = availableOptions.filter(({ kind, label }) =>
-    !query || kind.includes(query) || label.toLowerCase().includes(query)
-  );
-
-  return (
-    <div
-      ref={root}
-      className="agent-picker"
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) {
-          setOpen(false);
-          setQuery("");
-        }
-      }}
-    >
-      <input
-        value={value}
-        maxLength={32}
-        required
-        autoComplete="off"
-        role="combobox"
-        aria-autocomplete="list"
-        aria-expanded={open}
-        aria-controls={listId}
-        onClick={(event) => {
-          event.currentTarget.select();
-          setQuery("");
-          setOpen(true);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") setOpen(false);
-          if (event.key === "ArrowDown") {
-            setQuery("");
-            setOpen(true);
-          }
-        }}
-        onChange={(event) => {
-          const next = event.target.value.toLowerCase();
-          onChange(next);
-          setQuery(next);
-          setOpen(true);
-        }}
-      />
-      <button
-        className="agent-picker-toggle"
-        type="button"
-        aria-label="Show agent choices"
-        aria-expanded={open}
-        onClick={() => {
-          setQuery("");
-          setOpen((current) => !current);
-        }}
-      >
-        <span aria-hidden="true">⌄</span>
-      </button>
-      {open && (
-        <div className="agent-picker-options" id={listId} role="listbox">
-          {options.length > 0 ? options.map((option) => (
-            <button
-              type="button"
-              role="option"
-              aria-selected={option.kind === value}
-              key={option.kind}
-              onClick={() => {
-                onChange(option.kind);
-                setQuery("");
-                setOpen(false);
-              }}
-            >
-              <span>{option.label}</span>
-              <small>{option.kind}</small>
-            </button>
-          )) : <p>No matching configured agent</p>}
-        </div>
-      )}
-    </div>
   );
 }
 

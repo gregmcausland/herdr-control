@@ -402,6 +402,7 @@ export function App() {
       {creationTarget && (
         <ThreadCreationDialog
           project={creationTarget.project}
+          hostLabel={creationTarget.host.label}
           worktrees={(creationTarget.snapshot.worktrees ?? []).filter(
             (worktree) => worktree.project_id === creationTarget.project.project_id && !worktree.removed_at,
           )}

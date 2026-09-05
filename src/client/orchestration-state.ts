@@ -1,4 +1,5 @@
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
+import { readApiResponse } from "./conversation-api";
 import type {
   PaneInfo,
   ProjectInfo,
@@ -269,9 +270,11 @@ export function useControlOrchestration() {
     }
   }
 
+  const creationInFlight = useRef(false);
   async function createThread(request: ThreadCreationRequest) {
     const target = state.creationTarget;
-    if (!target) return;
+    if (!target || creationInFlight.current) return;
+    creationInFlight.current = true;
     dispatch({ type: "creation.started" });
     try {
       const response = await fetch(
@@ -282,8 +285,8 @@ export function useControlOrchestration() {
           body: JSON.stringify(request),
         },
       );
-      const body = await response.json().catch(() => undefined) as { error?: string; thread?: { pane_id: string } } | undefined;
-      if (!response.ok) throw new Error(body?.error ?? `Request failed with status ${response.status}`);
+      const body = await readApiResponse(response);
+      if (typeof body.thread?.pane_id !== "string") throw new Error("The host did not confirm which thread was started. Check the project before trying again.");
       dispatch({ type: "creation.completed" });
       if (body?.thread) {
         const paneId = body.thread.pane_id;
@@ -296,7 +299,7 @@ export function useControlOrchestration() {
         type: "creation.failed",
         error: error instanceof Error ? error.message : "Unable to create Thread",
       });
-    }
+    } finally { creationInFlight.current = false; }
   }
 
   return {

@@ -3,7 +3,7 @@ import type { ConversationSnapshot } from "../shared/protocol";
 /** Old bridges can return app HTML for an API route they do not recognize. */
 export async function readApiResponse(response: Response): Promise<any> {
   if (!response.headers.get("content-type")?.includes("application/json")) {
-    throw new Error("This host returned a web page instead of conversation data. Update and restart its Control bridge, then reload.");
+    throw new Error("This host returned a web page instead of API data. Update and restart its Control bridge, then reload.");
   }
   let body;
   try { body = await response.json(); }
