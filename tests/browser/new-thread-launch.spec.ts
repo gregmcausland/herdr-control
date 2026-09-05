@@ -45,7 +45,7 @@ test("starts a thread through Control while Herdr is still detecting the agent",
     if (method === "tab.create") return { result: {
       type: "tab_created", tab: { tab_id: "w1:t2", workspace_id: "w1" }, root_pane: { pane_id: "w1:p2" },
     } };
-    if (method === "pane.rename") return { result: { type: "pane_renamed" } };
+    if (method === "pane.rename" || method === "pane.report_metadata") return { result: {} };
     if (method === "agent.start") agentName = String(params.name);
     if (method === "agent.start" || method === "agent.get") {
       if (method === "agent.get") inspections++;
@@ -97,7 +97,7 @@ test("starts a thread through Control while Herdr is still detecting the agent",
     await expect(page.getByRole("button", { name: "Open terminal", exact: true })).toBeEnabled();
     await page.screenshot({ path: testInfo.outputPath("conversation-opened.png") });
     expect(calls.map(call => call.method)).toEqual([
-      "tab.create", "pane.rename", "agent.start", "agent.get", "agent.get", "agent.prompt",
+      "tab.create", "pane.rename", "agent.start", "agent.get", "agent.get", "pane.report_metadata", "agent.prompt",
     ]);
     expect(calls.at(-1)?.params).toEqual({ target: "w1:p2", text: "Test" });
     expect(browserErrors).toEqual([]);

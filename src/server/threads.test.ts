@@ -125,6 +125,28 @@ describe("ThreadManager", () => {
     threads.close();
   });
 
+  it("uses a blank launch's display label until the terminal supplies a title", () => {
+    const threads = new ThreadManager({ path: ":memory:", createId: ids() });
+    try {
+      const observed = snapshot();
+      const pane = observed.panes[0];
+      pane.terminal_title_stripped = undefined;
+      pane.name = "codex_abc123";
+      pane.display_agent = "codex";
+
+      const first = threads.reconcile(observed).threads![0];
+      expect(first.title).toBe("codex");
+
+      pane.terminal_title_stripped = "Investigate sidebar names";
+      const updated = threads.reconcile(observed).threads![0];
+      expect(updated.title).toBe("Investigate sidebar names");
+      expect(updated.thread_id).toBe(first.thread_id);
+      expect(updated.agent_name).toBe("codex_abc123");
+    } finally {
+      threads.close();
+    }
+  });
+
   it("projects durable Project and Worktree identity onto panes and Threads", () => {
     const threads = new ThreadManager({ path: ":memory:", createId: ids(), now: () => "2026-08-20T12:00:00.000Z" });
     const observed = snapshot();

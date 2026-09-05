@@ -1264,7 +1264,7 @@ function threadInfoFromRow(row: ThreadWithRunRow): ThreadInfo {
 }
 
 function titleOf(pane: PaneInfo): string {
-  return pane.label ?? pane.terminal_title_stripped ?? pane.name ?? pane.display_agent ?? pane.agent ?? pane.pane_id;
+  return pane.label ?? pane.terminal_title_stripped ?? pane.display_agent ?? pane.name ?? pane.agent ?? pane.pane_id;
 }
 
 function sameOccupant(thread: ThreadRow, pane: PaneInfo & { agent: string }): boolean {

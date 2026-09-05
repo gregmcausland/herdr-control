@@ -326,12 +326,14 @@ export class HerdrAdapter {
   /** Creates one dedicated Herdr tab, starts its agent, then optionally prompts it. */
   async createThread(request: HerdrThreadCreationRequest): Promise<ThreadCreationResult> {
     const title = creationTitle(request.creation);
-    const agentName = creationAgentName(title, request.creation.agent);
+    const agentName = creationAgentName(title ?? request.creation.agent, request.creation.agent);
     const location = await this.createThreadLocation(request, title);
-    await this.socketRequest(this.socketPath, "pane.rename", {
-      pane_id: location.paneId,
-      label: title,
-    });
+    if (title) {
+      await this.socketRequest(this.socketPath, "pane.rename", {
+        pane_id: location.paneId,
+        label: title,
+      });
+    }
     const started = await this.socketRequest(this.socketPath, "agent.start", {
       name: agentName,
       kind: request.creation.agent,
@@ -340,6 +342,13 @@ export class HerdrAdapter {
       args: permissionBypassArgsFor(request.creation.agent, Boolean(request.creation.skip_permissions)),
     });
     await this.waitForStartedAgent(location.paneId, agentName, request.creation.agent, started);
+    // Keep the unique launch handle out of Herdr's human-facing agent label.
+    await this.socketRequest(this.socketPath, "pane.report_metadata", {
+      pane_id: location.paneId,
+      source: "herdr-control",
+      agent: request.creation.agent,
+      display_agent: request.creation.agent,
+    });
     const prompt = request.creation.prompt?.trim();
     if (prompt) {
       await this.socketRequest(this.socketPath, "agent.prompt", {
@@ -381,7 +390,7 @@ export class HerdrAdapter {
 
   private async createThreadLocation(
     request: HerdrThreadCreationRequest,
-    title: string,
+    title: string | undefined,
   ): Promise<HerdrThreadLocation> {
     const location = request.creation.location;
     if (location.kind === "project") {
@@ -440,7 +449,7 @@ export class HerdrAdapter {
     project: ProjectInfo,
     path: string,
     label: string | undefined,
-    title: string,
+    title: string | undefined,
   ): Promise<HerdrThreadLocation> {
     const opened = await this.socketRequest(this.socketPath, "worktree.open", compactRecord({
       cwd: project.repo_root,
@@ -457,30 +466,32 @@ export class HerdrAdapter {
   private async createThreadTab(
     workspaceId: string,
     cwd: string,
-    title: string,
+    title: string | undefined,
   ): Promise<HerdrThreadLocation> {
-    const response = await this.socketRequest(this.socketPath, "tab.create", {
+    const response = await this.socketRequest(this.socketPath, "tab.create", compactRecord({
       workspace_id: workspaceId,
       cwd,
       label: title,
       focus: false,
       env: {},
-    });
+    }));
     return threadLocationFromHerdrResponse(response);
   }
 
   private async rootThreadLocation(
     response: Record<string, unknown>,
-    title: string,
+    title: string | undefined,
   ): Promise<HerdrThreadLocation> {
     return this.renameRootThreadTab(threadLocationFromHerdrResponse(response), title);
   }
 
   private async renameRootThreadTab(
     location: HerdrThreadLocation,
-    title: string,
+    title: string | undefined,
   ): Promise<HerdrThreadLocation> {
-    await this.socketRequest(this.socketPath, "tab.rename", { tab_id: location.tabId, label: title });
+    if (title) {
+      await this.socketRequest(this.socketPath, "tab.rename", { tab_id: location.tabId, label: title });
+    }
     return location;
   }
 
@@ -539,12 +550,12 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-export function creationTitle(request: ThreadCreationRequest): string {
+export function creationTitle(request: ThreadCreationRequest): string | undefined {
   const explicit = request.title?.trim();
   if (explicit) return explicit.slice(0, 80);
   const promptLine = request.prompt?.trim().split(/\r?\n/, 1)[0]?.trim();
   if (promptLine) return promptLine.slice(0, 80);
-  return `${request.agent.charAt(0).toUpperCase()}${request.agent.slice(1)} thread`;
+  return undefined;
 }
 
 export function creationAgentName(title: string, agent: string, suffix = randomUUID().slice(0, 6)): string {

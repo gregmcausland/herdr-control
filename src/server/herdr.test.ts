@@ -115,7 +115,39 @@ describe("new Thread creation", () => {
   it("derives concise Herdr labels and valid unique agent names", () => {
     const creation = { agent: "codex", prompt: "Build a clean creation interface\nwith details", location: { kind: "project" as const } };
     expect(creationTitle(creation)).toBe("Build a clean creation interface");
+    expect(creationTitle({ ...creation, title: "  Review UI  " })).toBe("Review UI");
+    expect(creationTitle({ ...creation, title: "  ", prompt: " \n " })).toBeUndefined();
     expect(creationAgentName("123 Improve UI", "codex", "abc123")).toBe("codex_123_improve_ui_abc123");
+  });
+
+  it.each([true, false])("leaves blank launches automatically named, existing workspace: %s", async (existingWorkspace) => {
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+    const herdr = new HerdrAdapter("herdr", "/tmp/herdr.sock", async (_socket, method, params) => {
+      calls.push({ method, params });
+      if (method === "tab.create" || method === "workspace.create") return tabCreated();
+      if (method === "agent.start") return agentStarted(params);
+      return { result: {} };
+    });
+
+    const result = await herdr.createThread({
+      project,
+      projectWorkspaceId: existingWorkspace ? "w1" : undefined,
+      creation: { agent: "codex", location: { kind: "project" } },
+    });
+
+    expect(calls.map((call) => call.method)).toEqual([
+      existingWorkspace ? "tab.create" : "workspace.create",
+      "agent.start",
+      "pane.report_metadata",
+    ]);
+    expect(calls[0].params.label).toBe(existingWorkspace ? undefined : project.name);
+    expect(calls[1].params.name).toBe(result.agent_name);
+    expect(calls[2].params).toEqual({
+      pane_id: result.pane_id,
+      source: "herdr-control",
+      agent: "codex",
+      display_agent: "codex",
+    });
   });
 
   it("creates a dedicated tab in an existing Project workspace before starting and prompting", async () => {
@@ -141,7 +173,7 @@ describe("new Thread creation", () => {
     });
 
     expect(result).toMatchObject({ workspace_id: "w1", tab_id: "w1:t2", pane_id: "w1:p2" });
-    expect(calls.map((call) => call.method)).toEqual(["tab.create", "pane.rename", "agent.start", "agent.prompt"]);
+    expect(calls.map((call) => call.method)).toEqual(["tab.create", "pane.rename", "agent.start", "pane.report_metadata", "agent.prompt"]);
     expect(calls[0].params).toMatchObject({
       workspace_id: "w1",
       cwd: "/projects/control",
@@ -155,7 +187,7 @@ describe("new Thread creation", () => {
       name: result.agent_name,
       args: ["--dangerously-bypass-approvals-and-sandbox"],
     });
-    expect(calls[3].params).toEqual({ target: "w1:p2", text: "Review the current state model." });
+    expect(calls.at(-1)?.params).toEqual({ target: "w1:p2", text: "Review the current state model." });
   });
 
   it("waits for Herdr detection before sending the initial message", async () => {
@@ -195,6 +227,7 @@ describe("new Thread creation", () => {
       "pane.rename",
       "agent.start",
       "agent.get",
+      "pane.report_metadata",
       "agent.prompt",
     ]);
     expect(calls.at(-1)?.params).toEqual({
@@ -239,7 +272,7 @@ describe("new Thread creation", () => {
     });
 
     expect(result).toMatchObject({ workspace_id: "w2", tab_id: "w2:t1", pane_id: "w2:p1" });
-    expect(calls.map((call) => call.method)).toEqual(["worktree.open", "tab.rename", "pane.rename", "agent.start"]);
+    expect(calls.map((call) => call.method)).toEqual(["worktree.open", "tab.rename", "pane.rename", "agent.start", "pane.report_metadata"]);
     expect(calls[0].params).toMatchObject({ cwd: project.repo_root, path: worktree.checkout_path, focus: false });
   });
 
@@ -270,7 +303,7 @@ describe("new Thread creation", () => {
       },
     });
 
-    expect(calls.map((call) => call.method)).toEqual(["worktree.create", "tab.rename", "pane.rename", "agent.start"]);
+    expect(calls.map((call) => call.method)).toEqual(["worktree.create", "tab.rename", "pane.rename", "agent.start", "pane.report_metadata"]);
     expect(calls[0].params).toEqual({
       cwd: project.repo_root,
       branch: "feature/new-thread",
@@ -326,6 +359,7 @@ describe("new Thread creation", () => {
       "tab.create",
       "pane.rename",
       "agent.start",
+      "pane.report_metadata",
     ]);
   });
 });
