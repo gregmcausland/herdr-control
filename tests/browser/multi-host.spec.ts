@@ -33,7 +33,7 @@ test("keeps one host usable while another disconnects and recovers", async ({ pa
     await expect(page.getByText("Second project", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Settings" }).click();
     const settings = page.getByRole("dialog", { name: "Settings" });
-    await expect(settings.getByRole("button", { name: "Go back" })).toBeHidden();
+    await expect(settings.getByRole("button", { name: "Go back" })).toBeVisible();
     expect(await settings.boundingBox()).toEqual({ x: 0, y: 0, width: 1280, height: 720 });
     await settings.getByRole("button", { name: "Cancel" }).click();
 
@@ -100,9 +100,10 @@ test("opens the mobile task composer through the agent fan", async ({ page }) =>
     expect(await settings.boundingBox()).toEqual({ x: 0, y: 0, width: 390, height: 844 });
 
     await settings.getByRole("button", { name: "Go back" }).click();
-    await page.getByRole("button", { name: "Manage Control Hosts" }).click();
-    const hosts = page.getByRole("dialog", { name: "Control Hosts" });
+    await page.getByRole("button", { name: "Manage servers" }).click();
+    const hosts = page.getByRole("dialog", { name: "Servers" });
     expect(await hosts.boundingBox()).toEqual({ x: 0, y: 0, width: 390, height: 844 });
+    await hosts.getByRole("button", { name: "Edit Mobile MZ" }).click();
     await hosts.getByRole("button", { name: "Remove" }).click();
     const confirmation = page.getByRole("dialog", { name: "Remove Mobile MZ?" });
     const confirmationBox = await confirmation.boundingBox();

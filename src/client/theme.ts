@@ -506,5 +506,5 @@ export function applyAppTheme(themeId: ThemeId, root: HTMLElement = document.doc
 
   for (const [name, value] of Object.entries(variables)) root.style.setProperty(name, value);
   root.style.colorScheme = themes[themeId].appearance;
-  document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute("content", color.canvas);
+  if (root === document.documentElement) document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute("content", color.canvas);
 }

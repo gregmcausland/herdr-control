@@ -197,8 +197,9 @@ Unarchiving a running Thread reuses its existing Run.
 ## Control Hosts
 
 The bridge serving the browser is the Home bridge. It stores the Control Host
-list in its local state database. Use the server button in the header to add,
-rename, check, or remove machines. The browser connects to every listed bridge
+list in its local state database. Open **Servers** from the header to see each
+machine and its connection status. Use **Add server** to connect another machine,
+or **Edit** on a server to rename it, change its URL, or remove it. The browser connects to every listed bridge
 directly, so each bridge must allow the Home bridge's origin for cross-host
 HTTP, SSE, and WebSocket connections.
 

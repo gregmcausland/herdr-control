@@ -213,8 +213,8 @@ export function App() {
           <button
             className="secondary icon-button hosts-trigger"
             type="button"
-            aria-label="Manage Control Hosts"
-            title="Manage Control Hosts"
+            aria-label="Manage servers"
+            title="Manage servers"
             onClick={control.openHosts}
           >
             <HostsIcon />
