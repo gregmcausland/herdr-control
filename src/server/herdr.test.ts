@@ -103,9 +103,9 @@ function agentStarted(params: Record<string, unknown>, launchPending = false) {
       agent: {
         pane_id: params.pane_id,
         name: params.name,
-        agent: params.kind ?? "codex",
-        interactive_ready: !launchPending,
-        launch_pending: launchPending,
+        ...(launchPending
+          ? { launch_pending: true }
+          : { agent: params.kind ?? "codex", interactive_ready: true }),
       },
     },
   };
@@ -172,7 +172,7 @@ describe("new Thread creation", () => {
         return {
           result: {
             type: "agent_info",
-            agent: { pane_id: params.target, name: startedName, agent: "codex", agent_status: "idle" },
+            agent: { pane_id: params.target, name: startedName, agent: "codex", agent_status: "idle", interactive_ready: true },
           },
         };
       }

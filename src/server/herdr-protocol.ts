@@ -126,7 +126,8 @@ export function agentIsReadyFromHerdrResponse(value: unknown, expected: Expected
     if (result.agent === undefined || result.agent === null) return false;
     const agent = requiredRecord(result.agent, "result.agent");
     const paneId = requiredString(agent.pane_id, "result.agent.pane_id");
-    const kind = requiredString(agent.agent, "result.agent.agent");
+    // Herdr acknowledges start before detection; its agent type can be absent.
+    const kind = optionalString(agent.agent, "result.agent.agent");
     const name = optionalString(agent.name, "result.agent.name");
     if (name && name !== expected.name) {
       throw new Error(`Herdr started an unexpected agent in ${expected.paneId}`);
@@ -135,7 +136,8 @@ export function agentIsReadyFromHerdrResponse(value: unknown, expected: Expected
     const launchPending = optionalBoolean(agent.launch_pending, "result.agent.launch_pending");
     return paneId === expected.paneId
       && kind === expected.kind
-      && interactiveReady !== false
+      // False readiness flags are omitted by Herdr's serializer.
+      && interactiveReady === true
       && launchPending !== true;
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("Herdr started an unexpected agent")) throw error;

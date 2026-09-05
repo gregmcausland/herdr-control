@@ -241,11 +241,29 @@ describe("Herdr action response adaptation", () => {
     });
   });
 
-  it("handles Herdr 0.8 readiness omissions but rejects malformed readiness fields", () => {
-    const expected = { paneId: "w1:p2", name: "review_state_abc123", kind: "codex" };
+  it.each([
+    [{ launch_pending: true }, false],
+    [{ agent: null, launch_pending: true }, false],
+    [{ agent: "codex", launch_pending: true }, false],
+    [{ agent: "codex" }, false],
+    [{ agent: "codex", interactive_ready: false }, false],
+    [{ agent: "codex", interactive_ready: true }, true],
+    [{ agent: "codex", interactive_ready: true, launch_pending: true }, false],
+    [{ agent: "pi", interactive_ready: true }, false],
+  ])("waits for the expected agent's explicit readiness: %j", (fields, ready) => {
     expect(agentIsReadyFromHerdrResponse({
-      result: { agent: { pane_id: "w1:p2", name: "review_state_abc123", agent: "codex" } },
-    }, expected)).toBe(true);
+      result: { agent: { pane_id: "w1:p2", name: "review_state_abc123", ...fields } },
+    }, { paneId: "w1:p2", name: "review_state_abc123", kind: "codex" })).toBe(ready);
+  });
+
+  it("rejects malformed readiness fields and an unexpected named agent", () => {
+    const expected = { paneId: "w1:p2", name: "review_state_abc123", kind: "codex" };
+    expect(() => agentIsReadyFromHerdrResponse({
+      result: { agent: { pane_id: "w1:p2", name: "different_agent", launch_pending: true } },
+    }, expected)).toThrow(/unexpected agent/);
+    expect(() => agentIsReadyFromHerdrResponse({
+      result: { agent: { pane_id: "w1:p2", agent: 42 } },
+    }, expected)).toThrow(/agent must be/);
     expect(() => agentIsReadyFromHerdrResponse({
       result: {
         agent: {
