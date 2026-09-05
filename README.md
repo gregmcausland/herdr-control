@@ -24,8 +24,7 @@ still change.
 - Start a configured coding agent in a Project, an existing Worktree, a new
   Worktree, or an existing checkout. Each agent starts in its own Thread.
 - Supply an optional title and initial message when starting an agent.
-- Follow how long an agent has been working and see the duration of its latest
-  completed working period.
+- Follow how long an agent has been working.
 - Open and control shells and full-screen agent interfaces without interrupting
   their underlying processes.
 - Type, paste text or clipboard images, send modified keys, resize, scroll, and
@@ -36,8 +35,8 @@ still change.
 - Observe a terminal controlled by another browser, explicitly take control,
   and recover control after reconnecting.
 - Archive threads without stopping their agents, stop agents explicitly, and
-  resume supported sessions. The main view shows 7 days of recent history;
-  the full archive retains conversations without automatic expiry.
+  resume supported sessions. The Archive screen retains conversations without
+  automatic expiry.
 - Choose from eight light and dark themes and customise interface fonts,
   terminal fonts, text sizes, cursor behaviour, and new-thread defaults.
 
@@ -45,6 +44,11 @@ Control discovers Projects and Worktrees from Herdr's repository inventory. To
 start a thread from Control, first open a Herdr workspace associated with the
 repository. Projects and thread history then remain available even as Herdr's
 workspace, tab, and pane layout changes.
+
+Home shows projects with open agents or shells, ordered by project name and host.
+Threads within each project appear newest first by their original creation date;
+status changes and restored runs do not change that order. Empty projects remain
+available through All projects and New thread.
 
 Each bridge checks its own executable `PATH` and reports which Control-supported
 agents it can launch. New-thread controls use the inventory from the Project's
@@ -176,9 +180,9 @@ reference. Archiving removes a thread from the active view and leaves its proces
 running. Use **Stop agent** in the conversation to request process retirement.
 If Herdr must preserve its worktree, Control reports that the process remains alive.
 
-The Project list shows archived Threads for 7 days. The full archive screen
-retains Threads and captured messages without automatic expiry, including threads
-without a resume reference. Unarchiving a running Thread reuses its existing Run.
+The Archive screen lists Threads by archive date and retains captured messages
+without automatic expiry, including threads without a resume reference.
+Unarchiving a running Thread reuses its existing Run.
 
 ## Control Hosts
 

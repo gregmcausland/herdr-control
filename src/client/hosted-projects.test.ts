@@ -5,7 +5,6 @@ import {
   archivedThreadsAcrossHosts,
   availableProjectsAcrossHosts,
   projectsAcrossHosts,
-  recentArchivedThreads,
 } from "./hosted-projects";
 import type { HostSessionFeed } from "./live-session";
 
@@ -66,7 +65,7 @@ describe("multi-host Project projection", () => {
     const groups = projectsAcrossHosts([
       feed(serverMz, { snapshot: snapshot(project("Control"), pane("server")) }),
       feed(alienMz, {
-        snapshot: snapshot(project("Control", "2026-08-25T12:00:00.000Z"), pane("alien")),
+        snapshot: snapshot({ ...project("Control", "2026-08-25T12:00:00.000Z"), project_id: "zzz" }, { ...pane("alien"), project_id: "zzz" }),
       }),
     ]);
 
@@ -78,7 +77,7 @@ describe("multi-host Project projection", () => {
     expect(new Set(groups.map(({ key }) => key)).size).toBe(2);
   });
 
-  it("puts a working Project above a newer idle Run across hosts and retains stale snapshots", () => {
+  it("sorts Projects by name regardless of working state and retains stale snapshots", () => {
     const groups = projectsAcrossHosts([
       feed(serverMz, {
         status: "stale",
@@ -90,20 +89,40 @@ describe("multi-host Project projection", () => {
       feed({ label: "Offline", url: "https://offline.example" }, { status: "stale" }),
     ]);
 
-    expect(groups.map(({ label }) => label)).toEqual(["Working Zulu", "Idle Alpha"]);
-    expect(groups[0].feedStatus).toBe("stale");
+    expect(groups.map(({ label }) => label)).toEqual(["Idle Alpha", "Working Zulu"]);
+    expect(groups[1].feedStatus).toBe("stale");
   });
 
-  it("keeps empty Projects visible and available for creation", () => {
+  it("hides empty Projects from home but keeps them available for creation", () => {
     const current = snapshot(project("Active"), pane("server"));
     current.projects!.push({ ...project("Dormant"), project_id: "dormant-project" });
     const feeds = [feed(serverMz, { snapshot: current })];
 
-    expect(projectsAcrossHosts(feeds).map(({ label }) => label)).toEqual(["Active", "Dormant"]);
+    expect(projectsAcrossHosts(feeds).map(({ label }) => label)).toEqual(["Active"]);
     expect(availableProjectsAcrossHosts(feeds).map(({ project: item }) => item.name)).toEqual([
       "Active",
       "Dormant",
     ]);
+  });
+
+  it("keeps Thread order through status changes, pane reordering and restored runs", () => {
+    const current = snapshot(project("Control"), pane("server"));
+    const older = { ...pane("server", "2026-08-29T12:00:00.000Z", "working"), pane_id: "older-pane", thread_id: "older" };
+    const newer = { ...pane("server"), pane_id: "newer-pane", thread_id: "newer" };
+    current.panes = [older, newer];
+    current.threads = ["older", "newer"].map((id, index) => ({
+      thread_id: id, title: id, agent: "codex", lifecycle: "open",
+      created_at: `2026-08-${20 + index}T12:00:00.000Z`, updated_at: "2026-08-29T12:00:00.000Z",
+    }));
+    const feeds = [feed(serverMz, { snapshot: current })];
+    const order = () => projectsAcrossHosts(feeds)[0].panes.map(item => item.thread_id);
+    expect(order()).toEqual(["newer", "older"]);
+    older.agent_status = "done";
+    older.run_started_at = "2026-09-01T12:00:00.000Z";
+    current.panes.reverse();
+    expect(order()).toEqual(["newer", "older"]);
+    current.threads[1].lifecycle = "archived";
+    expect(order()).toEqual(["older"]);
   });
 
   it("qualifies archived Threads from different hosts", () => {
@@ -131,7 +150,7 @@ describe("multi-host Project projection", () => {
     expect(new Set(threads.map(({ key }) => key)).size).toBe(2);
   });
 
-  it("keeps only the last seven days in recent archive history", () => {
+  it("sorts archive by archive date even when an older thread is still being observed", () => {
     const current = snapshot(project("Control"), pane("server"));
     current.threads = [
       {
@@ -151,13 +170,12 @@ describe("multi-host Project projection", () => {
         agent_session: { source: "herdr:codex", agent: "codex", kind: "id", value: "older" },
         lifecycle: "archived",
         created_at: "2026-08-10T12:00:00.000Z",
-        updated_at: "2026-08-10T12:00:00.000Z",
+        updated_at: "2026-08-29T12:00:00.000Z",
         archived_at: "2026-08-10T12:00:00.000Z",
       },
     ];
     const archived = archivedThreadsAcrossHosts([feed(serverMz, { snapshot: current })]);
 
-    expect(recentArchivedThreads(archived, Date.parse("2026-08-29T12:00:00.000Z"))
-      .map(({ thread }) => thread.thread_id)).toEqual(["recent"]);
+    expect(archived.map(({ thread }) => thread.thread_id)).toEqual(["recent", "older"]);
   });
 });

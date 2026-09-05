@@ -12,7 +12,6 @@ import {
   availableProjectsAcrossHosts,
   archivedThreadsAcrossHosts,
   projectsAcrossHosts,
-  recentArchivedThreads,
   type HostedArchivedThread,
 } from "./hosted-projects";
 import { normalizeHost, resolveInitialHost, type ControlHost } from "./hosts";
@@ -310,7 +309,6 @@ export function useControlOrchestration() {
     projectGroups: projectsAcrossHosts(liveSessions),
     availableProjects: availableProjectsAcrossHosts(liveSessions),
     archivedThreads,
-    recentArchivedThreads: recentArchivedThreads(archivedThreads),
     activePane,
     activeFeed,
     openThread,

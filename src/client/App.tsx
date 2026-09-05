@@ -11,7 +11,7 @@ import { ConfirmSurface } from "./Surface";
 import { applyFontSettings, readAppSettings, storeAppSettings } from "./settings";
 import { applyAppTheme } from "./theme";
 import { WorkingActivity } from "./WorkingActivity";
-import { ArchiveIcon, ArchiveScreen, ArchivedThreadList } from "./ArchiveScreen";
+import { ArchiveIcon, ArchiveScreen } from "./ArchiveScreen";
 import { ProjectPickerScreen } from "./ProjectPickerScreen";
 import { workingDuration } from "./working-duration";
 import { useControlOrchestration, type PaneAction } from "./orchestration-state";
@@ -28,7 +28,7 @@ function paneDetail(pane: PaneInfo, now: number): string {
   if (pane.agent) {
     const agent = pane.display_agent ?? pane.agent;
     const status = pane.agent_status ?? "unknown";
-    const duration = workingDuration(pane, now);
+    const duration = pane.agent_status === "working" ? workingDuration(pane, now) : undefined;
     return [
       `${agent.charAt(0).toUpperCase()}${agent.slice(1)}`,
       `${status.charAt(0).toUpperCase()}${status.slice(1)}`,
@@ -39,6 +39,19 @@ function paneDetail(pane: PaneInfo, now: number): string {
   if (!path) return "Shell";
   const segments = path.split("/").filter(Boolean);
   return segments.length > 2 ? `…/${segments.slice(-2).join("/")}` : path;
+}
+
+/** Only the working row ticks; the inventory does not need a clock. */
+function PaneDetail({ pane }: { pane: PaneInfo }) {
+  const [now, setNow] = useState(Date.now);
+  const startedAt = pane.agent_status === "working" ? pane.working_started_at : undefined;
+  useEffect(() => {
+    if (!startedAt) return;
+    setNow(Date.now());
+    const interval = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(interval);
+  }, [startedAt]);
+  return <span>{paneDetail(pane, now)}</span>;
 }
 
 function PaneActionDialog({
@@ -102,7 +115,6 @@ export function App() {
     projectGroups,
     availableProjects,
     archivedThreads,
-    recentArchivedThreads,
     activePane,
     terminalSelection,
     settingsOpen,
@@ -120,7 +132,6 @@ export function App() {
     creationError,
   } = control;
   const [settings, setSettings] = useState(readAppSettings);
-  const [clock, setClock] = useState(Date.now);
   const availableAgents = AGENT_KINDS.filter((agent) => Object.values(agentInventories).some(
     (inventory) => inventory.status === "ready" && inventory.agents.includes(agent.kind),
   ));
@@ -130,22 +141,12 @@ export function App() {
   const creationInventory = creationTarget
     ? agentInventories[creationTarget.host.url]
     : undefined;
-  const hasWorkingDuration = liveSessions.some((feed) => feed.snapshot?.panes.some(
-    (pane) => pane.agent_status === "working" && pane.working_started_at,
-  ));
 
   useEffect(() => {
     applyAppTheme(settings.theme);
     applyFontSettings(settings);
     storeAppSettings(settings);
   }, [settings]);
-
-  useEffect(() => {
-    if (!hasWorkingDuration) return;
-    setClock(Date.now());
-    const interval = window.setInterval(() => setClock(Date.now()), 1_000);
-    return () => window.clearInterval(interval);
-  }, [hasWorkingDuration]);
 
   if (terminalSelection?.route.kind === "thread" && (!terminalSelection.route.terminal || !activePane)) {
     const feed = control.activeFeed;
@@ -277,7 +278,6 @@ export function App() {
                     </button>
                   )}
                 </h3>
-                {panes.length === 0 && <p className="project-empty">No running threads. Start a thread here whenever you need it.</p>}
                 {panes.length > 0 && <div className="pane-list">
                   {panes.map((pane) => {
                     const thread = snapshot.threads?.find((candidate) => candidate.thread_id === pane.thread_id);
@@ -302,7 +302,7 @@ export function App() {
                                 <WorktreeIcon />
                               </span>
                             )}
-                            <span>{paneDetail(pane, clock)}</span>
+                            <PaneDetail pane={pane} />
                           </small>
                         </span>
                       </button>
@@ -322,20 +322,22 @@ export function App() {
               </section>
             );
           })}
+          {availableProjects.length > 0 && (
+            <section className="workspace-group">
+              <h3 className="workspace-divider">
+                <span>Projects</span>
+                <button className="archive-open" type="button" onClick={control.openProjectPicker}>
+                  All projects · {availableProjects.length}
+                </button>
+              </h3>
+            </section>
+          )}
           {archivedThreads.length > 0 && (
             <section className="workspace-group archived-group">
               <h3 className="workspace-divider archived-divider">
-                <span>{recentArchivedThreads.length > 0 ? "Recently archived" : "Archive"}</span>
+                <span>Archive · {archivedThreads.length}</span>
                 <button className="archive-open" type="button" onClick={control.openArchive}>View archive</button>
               </h3>
-              {recentArchivedThreads.length > 0 && (
-                <ArchivedThreadList
-                  threads={recentArchivedThreads}
-                  restoringThreadKey={restoringThreadKey}
-                  onRestore={(archived) => void control.restoreThread(archived)}
-                  onOpen={(archived) => control.openThread(archived.host, archived.thread.thread_id)}
-                />
-              )}
             </section>
           )}
         </section>

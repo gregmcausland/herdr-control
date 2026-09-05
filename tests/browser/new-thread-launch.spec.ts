@@ -79,7 +79,9 @@ test("starts a thread through Control while Herdr is still detecting the agent",
   try {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(url);
-    await page.getByRole("button", { name: /New Thread in Phone project/ }).click();
+    await expect(page.getByText("No active threads.")).toBeVisible();
+    await page.getByRole("button", { name: "New thread", exact: true }).click();
+    await page.getByRole("dialog", { name: "Choose a project" }).getByRole("button", { name: /Phone project/ }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Codex", exact: true }).click();
     const form = page.getByRole("dialog", { name: "New thread", exact: true });
     await form.getByLabel("What should Codex work on?").fill("Test");

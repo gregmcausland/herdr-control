@@ -21,7 +21,8 @@ async function openForm(page: Page) {
     return route.fulfill({ status: 404, json: { error: "Unexpected fixture request" } });
   });
   await page.goto(client!);
-  await page.getByRole("button", { name: "New Thread in Phone project on Custom host" }).click();
+  await page.getByRole("button", { name: "New thread", exact: true }).click();
+  await page.getByRole("dialog", { name: "Choose a project" }).getByRole("button", { name: /Phone project/ }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Codex", exact: true }).click();
   const form = page.getByRole("dialog", { name: "New thread", exact: true });
   await expect(form.getByLabel("What should Codex work on?")).toBeFocused();

@@ -113,7 +113,7 @@ test("opens the mobile task composer through the agent fan", async ({ page }) =>
   }
 });
 
-test("keeps inactive Projects visible and available through New thread", async ({ page }) => {
+test("keeps inactive Projects in the picker without cluttering home", async ({ page }) => {
   let controlHosts: readonly ControlHost[] = [];
   const home = new FakeBridge(
     "Home MZ",
@@ -129,9 +129,9 @@ test("keeps inactive Projects visible and available through New thread", async (
   try {
     await page.goto(homeUrl);
     await expect(page.getByText("Active project", { exact: true })).toBeVisible();
-    await expect(page.getByText("Dormant project", { exact: true })).toBeVisible();
+    await expect(page.getByText("Dormant project", { exact: true })).toHaveCount(0);
 
-    await page.getByRole("button", { name: "New thread", exact: true }).click();
+    await page.getByRole("button", { name: "All projects · 2", exact: true }).click();
     const picker = page.getByRole("dialog", { name: "Choose a project" });
     await expect(picker.getByText("Active project", { exact: true })).toBeVisible();
     await picker.getByRole("button", { name: /Dormant project/ }).click();
@@ -142,10 +142,50 @@ test("keeps inactive Projects visible and available through New thread", async (
   }
 });
 
+test("keeps project and thread positions stable as live agents finish", async ({ page }, testInfo) => {
+  let controlHosts: readonly ControlHost[] = [];
+  const home = new FakeBridge("Home MZ", "Zulu", () => controlHosts, true);
+  const homeUrl = await home.start();
+  controlHosts = [{ label: "Home MZ", url: homeUrl }];
+  const state = snapshot("Home MZ", "Zulu", ["Alpha", "Dormant"]);
+  const older = { ...state.panes[0], label: "Older working thread", thread_id: "older", agent_status: "working",
+    working_started_at: new Date(Date.now() - 120_000).toISOString() };
+  const newer = { ...older, pane_id: "newer-pane", label: "Newer idle thread", thread_id: "newer", agent_status: "idle", last_work_duration_ms: 123_000 };
+  state.panes = [older, newer, { ...newer, pane_id: "alpha-pane", label: "Alpha thread", thread_id: "alpha", project_id: "alpha:project" }];
+  state.threads = ["older", "newer", "alpha"].map((id, index) => ({
+    thread_id: id, title: id, agent: "codex", lifecycle: "open",
+    created_at: `2026-08-${20 + index}T12:00:00.000Z`, updated_at: "2026-09-05T12:00:00.000Z",
+  }));
+  home.publish(state);
+  const titles = () => page.locator(".workspace-group:has(.pane-list) .workspace-divider > span:first-child");
+  try {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(homeUrl);
+    await expect(titles()).toHaveText(["Alpha", "Zulu"]);
+    await expect(page.locator(".pane-copy strong")).toHaveText(["Alpha thread", "Newer idle thread", "Older working thread"]);
+    await expect(page.locator(".pane-detail").nth(1)).toHaveText("Codex · Idle");
+    await expect(page.locator(".pane-detail").nth(2)).toContainText("Working · 2m");
+    await page.screenshot({ path: testInfo.outputPath("index-working.png") });
+    older.agent_status = "done";
+    state.panes.reverse();
+    home.publish(state);
+    await expect(page.locator(".pane-detail").nth(2)).toHaveText("Codex · Done");
+    await expect(titles()).toHaveText(["Alpha", "Zulu"]);
+    await expect(page.locator(".pane-copy strong")).toHaveText(["Alpha thread", "Newer idle thread", "Older working thread"]);
+    await page.reload();
+    await expect(page.locator(".pane-copy strong")).toHaveText(["Alpha thread", "Newer idle thread", "Older working thread"]);
+    await page.screenshot({ path: testInfo.outputPath("index-finished.png") });
+  } finally {
+    await page.close();
+    await home.stop();
+  }
+});
+
 class FakeBridge {
   private readonly responses = new Set<ServerResponse>();
   private readonly server = createServer((request, response) => this.respond(request, response));
   private currentPort?: number;
+  private state?: SessionFeedState;
 
   constructor(
     private readonly label: string,
@@ -159,6 +199,11 @@ class FakeBridge {
   get port(): number {
     if (!this.currentPort) throw new Error("Bridge is not listening");
     return this.currentPort;
+  }
+
+  publish(snapshot: SessionSnapshot): void {
+    this.state = { status: "live", revision: (this.state?.revision ?? 0) + 1, snapshot };
+    for (const response of this.responses) response.write(`data: ${JSON.stringify(this.state)}\n\n`);
   }
 
   async start(port = 0): Promise<string> {
@@ -205,7 +250,7 @@ class FakeBridge {
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
       });
-      response.write(`data: ${JSON.stringify(feedState(this.label, this.projectName, this.inactiveProjects))}\n\n`);
+      response.write(`data: ${JSON.stringify(this.state ?? feedState(this.label, this.projectName, this.inactiveProjects))}\n\n`);
       this.responses.add(response);
       request.on("close", () => this.responses.delete(response));
       return;

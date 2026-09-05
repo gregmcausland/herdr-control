@@ -39,17 +39,10 @@ export function groupPanesByProject(
         : [];
     }),
   ];
-  return groups.sort(compareProjectActivity);
+  return groups.sort((first, second) => compareProjectNames(first, second) || first.id.localeCompare(second.id));
 }
 
-/** Working Projects come first. Peers use fixed identity fields so live updates cannot reshuffle them. */
-export function compareProjectActivity(first: ProjectPaneGroup, second: ProjectPaneGroup): number {
-  const activity = Number(hasWorkingPane(second)) - Number(hasWorkingPane(first));
-  if (activity !== 0) return activity;
-  return first.label.localeCompare(second.label, undefined, { sensitivity: "base" })
-    || first.id.localeCompare(second.id);
-}
-
-function hasWorkingPane(group: ProjectPaneGroup): boolean {
-  return group.panes.some((pane) => pane.agent_status === "working");
+/** Status changes never move a Project. Callers supply host/identity tie breakers. */
+export function compareProjectNames(first: ProjectPaneGroup, second: ProjectPaneGroup): number {
+  return first.label.localeCompare(second.label, undefined, { sensitivity: "base" });
 }

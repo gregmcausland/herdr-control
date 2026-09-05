@@ -1,9 +1,8 @@
 import type { SessionSnapshot, ThreadInfo } from "../shared/protocol";
-import { isRecentArchive } from "../shared/archive-policy";
 import type { ControlHost } from "./hosts";
 import type { HostSessionFeed } from "./live-session";
 import {
-  compareProjectActivity,
+  compareProjectNames,
   groupPanesByProject,
   type ProjectPaneGroup,
 } from "./workspace-groups";
@@ -36,6 +35,11 @@ export function projectsAcrossHosts(feeds: readonly HostSessionFeed[]): HostedPr
   return feeds.flatMap((feed) => {
     const snapshot = feed.snapshot;
     if (!snapshot) return [];
+    const threadsById = new Map(snapshot.threads?.map((thread) => [thread.thread_id, thread]));
+    // A restored Thread keeps its original position. Shells without a Thread
+    // use their run start, then pane identity when no timestamp is available.
+    const createdAt = (pane: SessionSnapshot["panes"][number]) =>
+      (pane.thread_id ? threadsById.get(pane.thread_id)?.created_at : undefined) ?? pane.run_started_at ?? "";
     const archivedThreadIds = new Set(
       snapshot.threads
         ?.filter((thread) => thread.lifecycle === "archived")
@@ -46,15 +50,20 @@ export function projectsAcrossHosts(feeds: readonly HostSessionFeed[]): HostedPr
       snapshot.worktrees ?? [],
       snapshot.workspaces,
       snapshot.panes.filter((pane) => !pane.thread_id || !archivedThreadIds.has(pane.thread_id)),
-    ).map((group) => ({
+    ).filter((group) => group.panes.length > 0).map((group) => ({
       ...group,
+      panes: [...group.panes].sort((first, second) => (
+        createdAt(second).localeCompare(createdAt(first))
+        || (first.thread_id ?? first.pane_id).localeCompare(second.thread_id ?? second.pane_id)
+        || first.pane_id.localeCompare(second.pane_id)
+      )),
       key: hostedKey(feed.host.url, group.id),
       host: feed.host,
       feedStatus: feed.status,
       snapshot,
     }));
   }).sort((first, second) => (
-    compareProjectActivity(first, second)
+    compareProjectNames(first, second)
     || first.host.label.localeCompare(second.host.label, undefined, { sensitivity: "base" })
     || first.key.localeCompare(second.key)
   ));
@@ -92,16 +101,10 @@ export function archivedThreadsAcrossHosts(
       thread,
     })) ?? []
   ).sort((first, second) => (
-    second.thread.updated_at.localeCompare(first.thread.updated_at)
+    (second.thread.archived_at ?? second.thread.updated_at)
+      .localeCompare(first.thread.archived_at ?? first.thread.updated_at)
     || first.key.localeCompare(second.key)
   ));
-}
-
-export function recentArchivedThreads(
-  threads: readonly HostedArchivedThread[],
-  now = Date.now(),
-): HostedArchivedThread[] {
-  return threads.filter(({ thread }) => isRecentArchive(thread, now));
 }
 
 export function hostedKey(hostUrl: string, localId: string): string {

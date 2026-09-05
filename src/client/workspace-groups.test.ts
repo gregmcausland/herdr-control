@@ -57,12 +57,12 @@ describe("workspace grouping", () => {
       [main, feature, shell],
     );
 
-    expect(groups.map(({ label }) => label)).toEqual(["Control", "blocked"]);
-    expect(groups[0].panes.map((item) => item.pane_id)).toEqual(["idle-pane", "working-active"]);
-    expect(groups[1].panes.map((item) => item.pane_id)).toEqual(["shell"]);
+    expect(groups.map(({ label }) => label)).toEqual(["blocked", "Control"]);
+    expect(groups[1].panes.map((item) => item.pane_id)).toEqual(["idle-pane", "working-active"]);
+    expect(groups[0].panes.map((item) => item.pane_id)).toEqual(["shell"]);
   });
 
-  it("puts every working Project first without letting newer idle Runs split the working tier", () => {
+  it("uses alphabetical Project order regardless of run activity", () => {
     const projects: ProjectInfo[] = [
       {
         project_id: "project-bravo",

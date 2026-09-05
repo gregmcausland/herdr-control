@@ -131,12 +131,12 @@ test("restores a routed terminal after refresh and follows browser history", asy
   await expect(page.getByRole("button", { name: "Open Test pane on Custom host" })).toBeVisible();
 });
 
-test("shows recent archive history on the main screen and all retained Threads in the archive", async ({ page }) => {
+test("keeps history off home and shows all retained Threads in the archive", async ({ page }) => {
   test.skip(!clientUrl, "A running browser client is required");
   await mockTerminal(page, []);
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
 
-  await expect(page.locator(".archived-thread-title", { hasText: "Recent archived thread" })).toBeVisible();
+  await expect(page.locator(".archived-thread-title")).toHaveCount(0);
   await expect(page.locator(".archived-thread-title", { hasText: "Older archived thread" })).toHaveCount(0);
   await page.getByRole("button", { name: "View archive" }).click();
 
