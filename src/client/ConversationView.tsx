@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import type { ConversationSnapshot, ConversationMessage, SessionFeedStatus, ThreadInfo } from "../shared/protocol";
 import { readConversation, readDraft, readPosition, storeConversation, storeDraft, storePosition } from "./conversation-state";
 import { attachTerminalViewport } from "./terminal-viewport";
+import { readApiResponse, readConversationResponse } from "./conversation-api";
 
 interface Props {
   hostUrl: string;
@@ -32,8 +33,9 @@ export function ConversationView({ hostUrl, hostLabel, threadId, feedStatus, liv
   const initialized = useRef(false);
   const requestGeneration = useRef(0);
   const thread = liveThread ?? conversation?.thread;
-  const live = feedStatus === "live" && !readError;
+  const live = feedStatus === "live";
   const active = live && Boolean(thread?.current_run);
+  const conversationReady = live && Boolean(conversation) && !readError;
   const receipt = conversation?.messages.find((message) => message.message_id === draft.messageId);
   const uncertain = receipt?.delivery === "uncertain";
   const pending = sending || receipt?.delivery === "sending";
@@ -48,8 +50,7 @@ export function ConversationView({ hostUrl, hostLabel, threadId, feedStatus, liv
     const generation = ++requestGeneration.current;
     try {
       const response = await fetch(`${hostUrl}/api/threads/${encodeURIComponent(threadId)}/conversation`, { signal: signal ?? AbortSignal.timeout(8000), cache: "no-store" });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "Unable to read conversation");
+      const body = await readConversationResponse(response, threadId);
       if (!mounted.current || generation !== requestGeneration.current) return;
       setReadError(undefined);
       setConversation((previous) => {
@@ -111,7 +112,7 @@ export function ConversationView({ hostUrl, hostLabel, threadId, feedStatus, liv
   };
 
   const send = async () => {
-    if (!active || pending || uncertain || !draft.text.trim()) return;
+    if (!active || !conversationReady || pending || uncertain || !draft.text.trim()) return;
     setSending(true);
     setError(undefined);
     // The draft and its ID are already durable before any request leaves the page.
@@ -120,8 +121,8 @@ export function ConversationView({ hostUrl, hostLabel, threadId, feedStatus, liv
         method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(15_000),
         body: JSON.stringify({ text: draft.text, message_id: draft.messageId, retry: receipt?.delivery === "failed" }),
       });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "Unable to send message");
+      const body = await readApiResponse(response);
+      if (!body.message?.message_id || body.message.message_id !== draft.messageId) throw new Error("The host did not return a delivery receipt");
       if (!mounted.current) return;
       const message = body.message as ConversationMessage;
       setConversation((previous) => previous ? { ...previous, messages: [...previous.messages.filter((item) => item.message_id !== message.message_id), message].sort((a, b) => a.sequence - b.sequence) } : previous);
@@ -143,8 +144,7 @@ export function ConversationView({ hostUrl, hostLabel, threadId, feedStatus, liv
     setBusy(true); setError(undefined);
     try {
       const response = await fetch(`${hostUrl}/api/threads/${encodeURIComponent(threadId)}/${kind}`, { method: "POST", signal: AbortSignal.timeout(70_000) });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "Action failed");
+      const body = await readApiResponse(response);
       if (body.outcome === "retained") setError("Herdr kept this process running to preserve its worktree. You can inspect it in the terminal.");
       await refresh();
     } catch (error) { if (mounted.current) setError(error instanceof Error ? error.message : "Action failed"); }
@@ -157,8 +157,7 @@ export function ConversationView({ hostUrl, hostLabel, threadId, feedStatus, liv
     const height = element.scrollHeight;
     try {
       const response = await fetch(`${hostUrl}/api/threads/${encodeURIComponent(threadId)}/conversation?before=${conversation.messages[0].sequence}`, { signal: AbortSignal.timeout(8000) });
-      if (!response.ok) throw new Error("Unable to load earlier messages");
-      const body = await response.json() as ConversationSnapshot;
+      const body = await readConversationResponse(response, threadId);
       followingRef.current = false;
       setConversation((previous) => previous ? { ...previous, messages: [...body.messages, ...previous.messages.filter((item) => !body.messages.some((old) => old.message_id === item.message_id))], has_older: body.has_older } : body);
       requestAnimationFrame(() => { element.scrollTop += element.scrollHeight - height; });
@@ -168,14 +167,14 @@ export function ConversationView({ hostUrl, hostLabel, threadId, feedStatus, liv
   return <main className="conversation-screen" ref={root}>
     <header className="conversation-header">
       <button className="secondary" onClick={onHome}>Home</button>
-      <div><h1>{thread?.title ?? "Conversation"}</h1><small>{hostLabel} · {feedStatus !== "live" || readError ? "Reconnecting · saved history" : thread?.current_run ? thread.current_run.agent_status ?? "Agent available" : "Stopped"}</small></div>
+      <div><h1>{thread?.title ?? "Conversation"}</h1><small>{hostLabel} · {live ? `Live · ${thread?.current_run ? thread.current_run.agent_status ?? "Agent available" : "Stopped"}${readError ? " · History unavailable" : ""}` : "Reconnecting · saved history"}</small></div>
       <button className="secondary" disabled={!active} onClick={onTerminal}>Open terminal</button>
     </header>
     <div className="conversation-toolbar">
       <span>{thread?.agent ?? "Agent"}{thread?.lifecycle === "archived" ? " · Archived" : ""}</span>
-      {thread && <button className="secondary" disabled={!live || busy} onClick={() => void action(thread.lifecycle === "archived" && thread.current_run ? "restore" : "archive")}>{thread.lifecycle === "archived" && thread.current_run ? "Unarchive" : "Archive"}</button>}
-      {active && <button className="secondary" disabled={busy} onClick={() => { if (window.confirm("Stop this agent process? Its conversation history will remain available.")) void action("stop"); }}>Stop agent</button>}
-      {!thread?.current_run && thread?.agent_session && <button disabled={!live || busy || thread.restoring} onClick={() => void action("restore")}>{busy || thread.restoring ? "Resuming…" : "Resume agent"}</button>}
+      {thread && <button className="secondary" disabled={!conversationReady || busy} onClick={() => void action(thread.lifecycle === "archived" && thread.current_run ? "restore" : "archive")}>{thread.lifecycle === "archived" && thread.current_run ? "Unarchive" : "Archive"}</button>}
+      {active && <button className="secondary" disabled={!conversationReady || busy} onClick={() => { if (window.confirm("Stop this agent process? Its conversation history will remain available.")) void action("stop"); }}>Stop agent</button>}
+      {!thread?.current_run && thread?.agent_session && <button disabled={!conversationReady || busy || thread.restoring} onClick={() => void action("restore")}>{busy || thread.restoring ? "Resuming…" : "Resume agent"}</button>}
     </div>
     <div className="conversation-reader" ref={reader} onScroll={() => {
       const element = reader.current!;
@@ -186,7 +185,7 @@ export function ConversationView({ hostUrl, hostLabel, threadId, feedStatus, liv
       <div className="conversation-messages">
         {conversation?.has_older && <button className="secondary" onClick={() => void older()}>Load earlier messages</button>}
         {!conversation && <p className="notice">{readError ?? "Loading conversation…"}</p>}
-        {conversation && !conversation.capture_available && <p className="conversation-notice">No agent messages captured yet. Replies appear here after a response finishes. Install reply capture on this host to include messages from the agent and desktop.</p>}
+        {conversation && !conversation.capture_available && <p className="conversation-notice">No agent messages captured yet. New replies appear after a response finishes in a session with reply capture enabled. Earlier replies are not imported.</p>}
         {conversation?.messages.map((message) => <article className={`conversation-message ${message.role}`} key={message.message_id}>
           <header><strong>{message.role === "user" ? "You" : thread?.agent ?? "Agent"}</strong><time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}</time>{message.delivery && <span className={`delivery ${message.delivery}`}>{message.delivery === "acknowledged" ? "Sent to agent" : message.delivery === "uncertain" ? "Delivery uncertain" : message.delivery}</span>}</header>
           <MessageBody text={message.text} />
@@ -199,10 +198,10 @@ export function ConversationView({ hostUrl, hostLabel, threadId, feedStatus, liv
     </div>
     {!following && <button className="jump-latest secondary" onClick={() => { followingRef.current = true; reader.current!.scrollTop = reader.current!.scrollHeight; }}>Jump to latest</button>}
     <form className="conversation-composer" onSubmit={(event) => { event.preventDefault(); void send(); }}>
-      {(error || readError || uncertain) && <p className="message-error" role="status">{uncertain ? receipt.error : error ?? "Host unavailable. Saved history and your draft remain here."}</p>}
+      {(error || readError || uncertain) && <p className="message-error" role="status">{uncertain ? receipt.error : error ?? readError}</p>}
       <label htmlFor="conversation-draft" className="sr-only">Message</label>
       <textarea id="conversation-draft" value={draft.text} onChange={(event) => edit(event.target.value)} disabled={pending} placeholder={active ? "Message the agent…" : "Write a draft…"} rows={3} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void send(); } }} />
-      <footer><small>{draft.text ? draftSaved ? "Draft saved on this device" : "Device storage unavailable · keep this page open" : "Replies update when the agent finishes responding"}</small><button disabled={!active || pending || uncertain || !draft.text.trim()}>{pending ? "Sending…" : receipt?.delivery === "failed" ? "Retry" : "Send"}</button></footer>
+      <footer><small>{draft.text ? draftSaved ? "Draft saved on this device" : "Device storage unavailable · keep this page open" : "Replies update when the agent finishes responding"}</small><button disabled={!active || !conversationReady || pending || uncertain || !draft.text.trim()}>{pending ? "Sending…" : receipt?.delivery === "failed" ? "Retry" : "Send"}</button></footer>
     </form>
   </main>;
 }

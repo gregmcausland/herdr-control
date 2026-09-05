@@ -232,6 +232,19 @@ npm run test:browser:mock
 The mock browser suite needs Playwright Chromium (`npx playwright install chromium`)
 and starts its own client. It does not connect to real agents.
 
+After installing an update on **every** configured host, inspect the deployed app
+without sending messages or attaching terminals:
+
+```bash
+HERDR_CONTROL_READONLY_URL=https://your-home-bridge npm run test:browser:readonly
+```
+
+This check blocks mutation requests and terminal WebSockets, and reads active and
+archived conversations across all saved hosts. Building files alone does not update
+a running bridge process. When working from the checkout used by the service,
+run `npm run control -- install` to build and restart it together. Otherwise a new
+browser client can be served by an old bridge that lacks its conversation API.
+
 The browser compatibility suite controls a real, isolated Herdr pane and
 therefore requires explicit endpoints:
 

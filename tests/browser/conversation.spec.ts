@@ -59,6 +59,26 @@ async function open(page: Page) {
   await expect(page.getByRole("heading", { name: "Ready to review" })).toBeVisible();
 }
 
+test("keeps a connected host usable when its old bridge returns HTML for conversations", async ({ page }) => {
+  test.skip(!client, "Browser client required");
+  const state = await fixture(page);
+  await page.route("**/api/threads/thread-1/conversation*", route => route.fulfill({ contentType: "text/html", body: "<!doctype html><html>Old bridge</html>" }));
+  await page.goto(`${client}/threads/thread-1?host=${encodeURIComponent(client!)}`);
+  await expect(page.locator(".conversation-header small")).toContainText("Live · idle · History unavailable");
+  await expect(page.locator(".conversation-reader")).toContainText("Update and restart its Control bridge");
+  await expect(page.getByRole("button", { name: "Open terminal", exact: true })).toBeEnabled();
+  await page.getByRole("textbox", { name: "Message", exact: true }).fill("Keep this draft");
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+  expect(state.submissions).toHaveLength(0);
+  expect(state.sockets).toHaveLength(0);
+  await page.unroute("**/api/threads/thread-1/conversation*");
+  await page.route("**/api/threads/thread-1/conversation*", route => route.fulfill({ json: { thread, messages: state.messages, capture_available: true, has_older: false } }));
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect(page.getByRole("heading", { name: "Ready to review" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveValue("Keep this draft");
+});
+
 test("reads replies and preserves drafts across navigation, reload and terminal drill-down", async ({ browser }) => {
   test.skip(!client, "Browser client required");
   const context = await browser.newContext({ isMobile: true, hasTouch: true, viewport: { width: 390, height: 844 } });

@@ -235,6 +235,10 @@ describe("Thread messages", () => {
         has_older: false,
       });
       expect(promptThread).toHaveBeenCalledTimes(1);
+      const missing = await fetch(`http://127.0.0.1:${port}/api/not-an-endpoint`);
+      expect(missing.status).toBe(404);
+      expect(missing.headers.get("content-type")).toContain("application/json");
+      expect(await missing.json()).toMatchObject({ error: expect.stringContaining("Unknown Control API route") });
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }

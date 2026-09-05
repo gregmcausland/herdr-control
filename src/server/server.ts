@@ -115,6 +115,7 @@ export function createControlServer(
       sendJson(response, 200, {
         ok: true,
         control_version: CONTROL_VERSION,
+        capabilities: { conversations: true },
         herdr_protocol: { min: HERDR_PROTOCOL_MIN, max: HERDR_PROTOCOL_MAX },
       });
       return;
@@ -301,6 +302,10 @@ export function createControlServer(
             : 502;
         sendJson(response, status, { error: error instanceof Error ? error.message : "Unable to delete pane" });
       }
+      return;
+    }
+    if (url.pathname.startsWith("/api/")) {
+      sendJson(response, 404, { error: "Unknown Control API route. Check that this host's bridge and browser client are up to date." });
       return;
     }
     if (request.method === "GET") {
