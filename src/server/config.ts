@@ -10,6 +10,8 @@ export interface ServerConfig {
   statePath: string;
   legacyHostsPath?: string;
   allowedOrigins: Set<string>;
+  openaiApiKey?: string;
+  transcriptionModel?: string;
 }
 
 export function loadConfig(environment = process.env): ServerConfig {
@@ -28,6 +30,8 @@ export function loadConfig(environment = process.env): ServerConfig {
     statePath: environment.HERDR_CONTROL_STATE
       ?? join(environment.XDG_STATE_HOME ?? join(homedir(), ".local", "state"), "herdr-control", "control.db"),
     legacyHostsPath: environment.HERDR_CONTROL_LEGACY_HOSTS,
+    openaiApiKey: environment.OPENAI_API_KEY?.trim() || undefined,
+    transcriptionModel: environment.HERDR_CONTROL_TRANSCRIPTION_MODEL?.trim() || undefined,
     allowedOrigins: new Set(
       (environment.HERDR_CONTROL_ALLOWED_ORIGINS
         ?? `http://localhost:${port},http://127.0.0.1:${port},http://localhost:5173,http://127.0.0.1:5173`)

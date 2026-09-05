@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
+test.use({ launchOptions: { args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] } });
+
 const client = process.env.HERDR_CONTROL_TEST_CLIENT;
 const thread = {
   thread_id: "thread-1", title: "Fix mobile reconnects", agent: "codex", lifecycle: "open",
@@ -210,4 +212,122 @@ test("animates live work beside the composer and settles when work finishes or d
   await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveValue("Keep this draft while you work");
   expect(state.submissions).toHaveLength(0);
   expect(state.sockets).toHaveLength(0);
+});
+
+test.describe("voice input", () => {
+
+  async function voiceFixture(page: Page) {
+    const state = await fixture(page);
+    await page.addInitScript(() => {
+      const getUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async constraints => {
+        const stream = await getUserMedia(constraints);
+        (window as any).voiceStream = stream;
+        return stream;
+      };
+    });
+    return state;
+  }
+
+  test("records into an editable draft without sending and fits phone and desktop", async ({ page }, testInfo) => {
+    test.skip(!client, "Browser client required");
+    await page.setViewportSize({ width: 390, height: 844 });
+    const state = await voiceFixture(page);
+    let finish!: () => void;
+    const gate = new Promise<void>(resolve => { finish = resolve; });
+    await page.route("**/api/transcription", async route => {
+      if (route.request().method() === "GET") return route.fulfill({ json: { available: true } });
+      expect(route.request().headers()["content-type"]).toContain("audio/webm");
+      expect(route.request().postDataBuffer()!.length).toBeGreaterThan(0);
+      await gate;
+      await route.fulfill({ json: { text: "Review the Herdr changes." } });
+    });
+    await open(page);
+    const draft = page.getByRole("textbox", { name: "Message", exact: true });
+    await draft.fill("Please");
+    await page.getByRole("button", { name: "Dictate message" }).click();
+    await expect(page.getByRole("status")).toContainText("Recording");
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+    await expect(page.getByRole("status")).toContainText("1s / 120s");
+    await page.screenshot({ path: testInfo.outputPath("dictation-recording-phone.png") });
+    const upload = page.waitForRequest(request => request.url().endsWith("/api/transcription") && request.method() === "POST");
+    await page.getByRole("button", { name: "Stop recording" }).click();
+    await upload;
+    await expect(page.getByRole("status")).toHaveText("Transcribing…");
+    await draft.fill("Please also");
+    for (const viewport of [{ width: 1440, height: 1000 }, { width: 320, height: 430 }]) {
+      await page.setViewportSize(viewport);
+      await expect(page.getByRole("button", { name: "Send", exact: true })).toBeInViewport();
+      expect(await page.locator(".conversation-composer").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+      expect(await page.locator(".conversation-input").evaluate(el => {
+        const bounds = el.getBoundingClientRect();
+        return [...el.querySelectorAll("button")].every(button => {
+          const rect = button.getBoundingClientRect();
+          return rect.left >= bounds.left && rect.right <= bounds.right;
+        });
+      })).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`dictation-transcribing-${viewport.width}.png`) });
+    }
+    finish();
+    await expect(draft).toHaveValue("Please also Review the Herdr changes.");
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+    expect(state.submissions).toHaveLength(0);
+    expect(await page.evaluate(() => (window as any).voiceStream.getTracks().every((track: MediaStreamTrack) => track.readyState === "ended"))).toBe(true);
+    await page.reload();
+    await expect(draft).toHaveValue("Please also Review the Herdr changes.");
+  });
+
+  test("cancel releases the microphone without uploading, and navigation drops a pending transcript", async ({ page }) => {
+    test.skip(!client, "Browser client required");
+    const state = await voiceFixture(page);
+    let uploads = 0;
+    let finish!: () => void;
+    const gate = new Promise<void>(resolve => { finish = resolve; });
+    await page.route("**/api/transcription", async route => {
+      if (route.request().method() === "GET") return route.fulfill({ json: { available: true } });
+      uploads++;
+      await gate;
+      await route.fulfill({ json: { text: "Late transcript" } }).catch(() => undefined);
+    });
+    await open(page);
+    const draft = page.getByRole("textbox", { name: "Message", exact: true });
+    await draft.fill("Keep my draft");
+    await page.getByRole("button", { name: "Dictate message" }).click();
+    await expect(page.getByRole("button", { name: "Stop recording" })).toBeEnabled();
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Dictate message" })).toBeEnabled();
+    expect(uploads).toBe(0);
+    expect(await page.evaluate(() => (window as any).voiceStream.getTracks().every((track: MediaStreamTrack) => track.readyState === "ended"))).toBe(true);
+    await page.getByRole("button", { name: "Dictate message" }).click();
+    await expect(page.getByRole("status")).toContainText("1s / 120s");
+    await page.getByRole("button", { name: "Stop recording" }).click();
+    await expect.poll(() => uploads).toBe(1);
+    await page.getByRole("button", { name: "Home", exact: true }).click();
+    finish();
+    await page.getByRole("button", { name: "Open Fix mobile reconnects on Custom host" }).click();
+    await expect(draft).toHaveValue("Keep my draft");
+    expect(state.submissions).toHaveLength(0);
+  });
+
+  test("permission denial preserves the draft and missing configuration hides the mic", async ({ page }) => {
+    test.skip(!client, "Browser client required");
+    const state = await fixture(page);
+    let available = true;
+    await page.route("**/api/transcription", route => route.fulfill({ json: { available } }));
+    await page.addInitScript(() => {
+      navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException("Denied", "NotAllowedError"));
+    });
+    await open(page);
+    const draft = page.getByRole("textbox", { name: "Message", exact: true });
+    await draft.fill("Keep this");
+    await page.getByRole("button", { name: "Dictate message" }).click();
+    await expect(page.getByRole("status")).toContainText("Microphone access was denied");
+    await expect(draft).toHaveValue("Keep this");
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+    expect(state.submissions).toHaveLength(0);
+    available = false;
+    await page.reload();
+    await expect(draft).toHaveValue("Keep this");
+    await expect(page.getByRole("button", { name: "Dictate message" })).toHaveCount(0);
+  });
 });

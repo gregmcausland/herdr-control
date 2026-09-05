@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { MAX_AUDIO_BYTES, TranscriptionError, TranscriptionService } from "./transcription.js";
 import { ConversationStore } from "./conversations.js";
 import { collectReplies } from "./capture.js";
 import { MessageDeliveryService, MessageConflictError } from "./message-delivery.js";
@@ -71,6 +72,7 @@ export function createControlServer(
   providedThreads?: ThreadManager,
   providedHosts?: ControlHostStore,
   discoverAgents: () => Promise<readonly KnownAgentKind[]> = discoverAvailableAgentKinds,
+  transcription = new TranscriptionService(config.openaiApiKey, config.transcriptionModel),
 ) {
   const threads = providedThreads ?? new ThreadManager({
     path: config.statePath,
@@ -111,6 +113,30 @@ export function createControlServer(
     }
 
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+    if (url.pathname === "/api/transcription" && request.method === "GET") {
+      sendJson(response, 200, { available: transcription.available });
+      return;
+    }
+    if (url.pathname === "/api/transcription" && request.method === "POST") {
+      if (!transcription.available) {
+        request.resume();
+        sendJson(response, 503, { error: "Voice input is not configured on this host." });
+        return;
+      }
+      const controller = new AbortController();
+      const abort = () => { if (!response.writableEnded) controller.abort(); };
+      response.on("close", abort);
+      try {
+        const audio = await readBody(request, MAX_AUDIO_BYTES);
+        const text = await transcription.transcribe(audio, request.headers["content-type"], controller.signal);
+        sendJson(response, 200, { text });
+      } catch (error) {
+        const status = error instanceof TranscriptionError ? error.statusCode : error instanceof ClipboardImageError ? 413 : 500;
+        sendJson(response, status, { error: error instanceof TranscriptionError ? error.message
+          : status === 413 ? "The recording is too large. Try a shorter message." : "Unable to read the recording." });
+      } finally { response.off("close", abort); }
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/health") {
       sendJson(response, 200, {
         ok: true,

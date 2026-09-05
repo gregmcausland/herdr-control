@@ -304,6 +304,7 @@ export function useControlOrchestration() {
   return {
     ...state,
     hostConfiguration,
+    homeBridge,
     liveSessions,
     agentInventories,
     projectGroups: projectsAcrossHosts(liveSessions),

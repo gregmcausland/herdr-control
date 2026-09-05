@@ -8,9 +8,11 @@ import { readApiResponse, readConversationResponse } from "./conversation-api";
 import { WorkingActivity } from "./WorkingActivity";
 import { formatDuration } from "./working-duration";
 import type { ThemeId } from "./theme";
+import { useDictation } from "./use-dictation";
 
 interface Props {
   hostUrl: string;
+  transcriptionUrl: string;
   hostLabel: string;
   threadId: string;
   feedStatus: SessionFeedStatus;
@@ -21,7 +23,7 @@ interface Props {
 }
 
 /** Reads durable replies without acquiring terminal ownership. */
-export function ConversationView({ hostUrl, hostLabel, threadId, feedStatus, themeId, liveThread, onHome, onTerminal }: Props) {
+export function ConversationView({ hostUrl, transcriptionUrl, hostLabel, threadId, feedStatus, themeId, liveThread, onHome, onTerminal }: Props) {
   const [conversation, setConversation] = useState(() => readConversation(hostUrl, threadId));
   const [draft, setDraft] = useState(() => readDraft(hostUrl, threadId));
   const [sending, setSending] = useState(false);
@@ -129,7 +131,7 @@ export function ConversationView({ hostUrl, hostLabel, threadId, feedStatus, the
   };
 
   const send = async () => {
-    if (!active || !conversationReady || pending || uncertain || !draft.text.trim()) return;
+    if (!active || !conversationReady || pending || uncertain || dictation.busy || !draft.text.trim()) return;
     setSending(true);
     setError(undefined);
     // The draft and its ID are already durable before any request leaves the page.
@@ -156,6 +158,10 @@ export function ConversationView({ hostUrl, hostLabel, threadId, feedStatus, the
       }
     } finally { if (mounted.current) setSending(false); }
   };
+
+  const dictation = useDictation(transcriptionUrl, text => {
+    edit(draft.text + (draft.text && !/\s$/.test(draft.text) ? " " : "") + text);
+  });
 
   const action = async (kind: "archive" | "restore" | "stop") => {
     setActionsOpen(false);
@@ -217,11 +223,19 @@ export function ConversationView({ hostUrl, hostLabel, threadId, feedStatus, the
     <form className="conversation-composer" onSubmit={(event) => { event.preventDefault(); void send(); }}>
       {!following && <button type="button" className="jump-latest secondary" onClick={() => { followingRef.current = true; reader.current!.scrollTop = reader.current!.scrollHeight; setFollowing(true); }}>Jump to latest ↓</button>}
       {working && <ConversationWorking agent={agent} startedAt={thread.current_run?.working_started_at} themeId={themeId} />}
-      {(error || readError || uncertain) && <p className="message-error" role="status">{uncertain ? receipt.error : error ?? readError}</p>}
+      {(error || readError || uncertain || dictation.error) && <p className="message-error" role="status">{uncertain ? receipt.error : error ?? readError ?? dictation.error}</p>}
       <div className="conversation-input">
       <label htmlFor="conversation-draft" className="sr-only">Message</label>
       <textarea id="conversation-draft" value={draft.text} onChange={(event) => edit(event.target.value)} disabled={pending} placeholder={active ? `Message ${agent}…` : "Write a draft…"} rows={2} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void send(); } }} />
-      <footer><small>{draft.text ? draftSaved ? "Draft saved on this device" : "Device storage unavailable · keep this page open" : working ? "You can write while it works" : active ? `Connected to ${agent}` : "Drafts stay on this device"}</small><button disabled={!active || !conversationReady || pending || uncertain || !draft.text.trim()}>{pending ? "Sending…" : receipt?.delivery === "failed" ? "Retry" : "Send"}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" /></svg></button></footer>
+      <footer><small role={dictation.busy ? "status" : undefined}>{dictation.phase === "starting" ? "Waiting for microphone…" : dictation.phase === "recording" ? `Recording · ${dictation.seconds}s / 120s` : dictation.phase === "transcribing" ? "Transcribing…" : draft.text ? draftSaved ? "Draft saved on this device" : "Device storage unavailable · keep this page open" : working ? "You can write while it works" : active ? `Connected to ${agent}` : "Drafts stay on this device"}</small>
+        <div className="composer-buttons">
+          {dictation.busy && <button type="button" className="secondary dictation-cancel" onClick={dictation.cancel}>Cancel</button>}
+          {dictation.available && <button type="button" className={`secondary dictation-mic ${dictation.phase === "recording" ? "recording" : ""}`} disabled={pending || dictation.phase === "starting" || dictation.phase === "transcribing"} aria-label={dictation.phase === "recording" ? "Stop recording" : "Dictate message"} title={dictation.phase === "recording" ? "Stop and transcribe" : "Dictate message"} onClick={() => dictation.phase === "recording" ? dictation.stop() : void dictation.start()}>
+            <svg viewBox="0 0 24 24" aria-hidden="true">{dictation.phase === "recording" ? <rect x="6" y="6" width="12" height="12" rx="2" /> : <><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8" /></>}</svg>
+          </button>}
+          <button disabled={!active || !conversationReady || pending || uncertain || dictation.busy || !draft.text.trim()}>{pending ? "Sending…" : receipt?.delivery === "failed" ? "Retry" : "Send"}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" /></svg></button>
+        </div>
+      </footer>
       </div>
     </form>
   </main>;

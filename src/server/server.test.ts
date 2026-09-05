@@ -8,6 +8,7 @@ import type { SessionStateFeed } from "./live-session";
 import { createControlServer } from "./server";
 import { ThreadManager } from "./threads";
 import { ControlHostStore } from "./control-hosts";
+import { TranscriptionService } from "./transcription";
 
 const snapshot: SessionSnapshot = {
   version: "test",
@@ -16,6 +17,34 @@ const snapshot: SessionSnapshot = {
   tabs: [],
   panes: [],
 };
+
+describe("voice input HTTP boundary", () => {
+  it("exposes availability without the key and accepts audio only from allowed origins", async () => {
+    const upstream = vi.fn<typeof fetch>(async () => Response.json({ text: "Review the change" }));
+    const session: SessionStateFeed = {
+      current: () => ({ status: "live", revision: 1, snapshot }),
+      subscribe: () => () => undefined, close: () => undefined,
+    };
+    const server = createControlServer({
+      host: "127.0.0.1", port: 0, herdrBinary: "herdr", herdrSocketPath: "/tmp/not-used.sock",
+      statePath: ":memory:", allowedOrigins: new Set(["https://control.example"]),
+    }, {} as HerdrAdapter, session, undefined, undefined, undefined, new TranscriptionService("test-private-key", undefined, upstream));
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/transcription`;
+    try {
+      expect(await (await fetch(url)).json()).toEqual({ available: true });
+      const rejected = await fetch(url, { method: "POST", headers: { Origin: "https://untrusted.example", "Content-Type": "audio/webm" }, body: "audio" });
+      expect(rejected.status).toBe(403);
+      expect(upstream).not.toHaveBeenCalled();
+      const response = await fetch(url, { method: "POST", headers: { Origin: "https://control.example", "Content-Type": "audio/webm;codecs=opus" }, body: "audio" });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ text: "Review the change" });
+      expect(upstream).toHaveBeenCalledTimes(1);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    }
+  });
+});
 
 describe("terminal ownership", () => {
   it("accepts control input only after Herdr confirms attachment", async () => {

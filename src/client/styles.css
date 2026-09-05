@@ -1032,10 +1032,14 @@ button.thread-options-summary.secondary:hover:not(:disabled) { background: var(-
 .conversation-input:focus-within { border-color: color-mix(in srgb, var(--color-info) 65%, var(--color-border)); }
 .conversation-composer textarea { display: block; width: 100%; min-height: 64px; max-height: 25dvh; resize: vertical; padding: 14px 16px 6px; border: 0; border-radius: 0; outline: none; background: transparent; color: var(--color-text); font: inherit; font-size: 16px; line-height: 1.45; }
 .conversation-composer textarea::placeholder { color: var(--color-text-muted); }
-.conversation-composer footer { display: flex; align-items: center; gap: 10px; padding: 8px 10px 10px 16px; }
+.conversation-composer footer { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 10px 10px 16px; }
 .conversation-composer footer small { flex: 1; font-size: 11px; color: var(--color-text-muted); }
 .conversation-composer footer button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; min-width: 80px; font-size: 12px; }
 .conversation-composer footer svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.composer-buttons { display: flex; align-items: center; gap: 6px; flex: none; margin-left: auto; }
+.conversation-composer footer .dictation-mic { min-width: 44px; padding: 10px; }
+.conversation-composer footer .dictation-cancel { min-width: 0; padding: 8px; }
+.dictation-mic.recording { color: var(--color-danger, #cf6470); border-color: currentColor; }
 .message-error { font-size: 12px; margin: 5px 0 10px; }
 .conversation-composer .jump-latest { position: absolute; z-index: 5; right: 24px; top: -44px; min-height: 36px; padding: 7px 12px; font-size: 11px; background: var(--color-canvas); box-shadow: 0 3px 18px color-mix(in srgb, var(--color-canvas) 80%, transparent); }
 .conversation-working { position: relative; isolation: isolate; display: flex; align-items: center; gap: 12px; min-height: 76px; margin: 0 0 10px; padding: 14px 18px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--color-activity-veil) 65%, var(--color-border)); border-radius: 14px; background: color-mix(in srgb, var(--color-activity-veil) 58%, var(--color-canvas)); }

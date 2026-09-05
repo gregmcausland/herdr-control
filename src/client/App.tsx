@@ -153,6 +153,7 @@ export function App() {
     return <ConversationView
       key={`${terminalSelection.hostUrl}:${terminalSelection.route.id}`}
       hostUrl={terminalSelection.hostUrl}
+      transcriptionUrl={control.homeBridge}
       hostLabel={feed?.host.label ?? "Host"}
       threadId={terminalSelection.route.id}
       themeId={settings.theme}

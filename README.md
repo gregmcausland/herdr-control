@@ -35,6 +35,8 @@ still change.
 - Read completed replies as Markdown and send messages from a native composer,
   without attaching a terminal. Drafts survive navigation and reload. Durable
   send receipts prevent retries from repeating an accepted Control request.
+- Trial [voice input](docs/voice-input.md) with an OpenAI API key on the home
+  bridge. Record a message, then review the transcript in your draft before sending.
 - Observe a terminal controlled by another browser, explicitly take control,
   and recover control after reconnecting.
 - Archive threads without stopping their agents, stop agents explicitly, and
