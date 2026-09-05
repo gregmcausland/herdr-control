@@ -75,7 +75,11 @@ async function mockTerminal(
   await page.routeWebSocket(/\/api\/terminal/, (socket) => {
     opened.push(socket.url());
     connections.push(socket);
-    socket.onMessage((message) => sent.push(JSON.parse(message.toString())));
+    socket.onMessage((message) => {
+      const parsed = JSON.parse(message.toString()) as { type: string; data?: string; key?: string };
+      sent.push(parsed);
+      if (parsed.type === "release") socket.send(JSON.stringify({ type: "released" }));
+    });
     socket.send(JSON.stringify({ type: "ready", mode: "control" }));
   });
 }
@@ -160,6 +164,129 @@ test("reclaims uncontested control when returning to a backgrounded terminal", a
   expect(new URL(opened[1]).searchParams.get("takeover")).toBe("false");
   await expect(page.locator(".terminal-header small")).toHaveText("Control");
   await expect(page.locator(".terminal-overlay")).toHaveCount(0);
+});
+
+test("waits for Herdr release before reacquiring control", async ({ page }) => {
+  test.skip(!clientUrl, "A running browser client is required");
+  const opened: string[] = [];
+  let owner = false;
+
+  await page.route("**/api/session/events", (route) => route.fulfill({
+    contentType: "text/event-stream",
+    body: `data: ${JSON.stringify({ status: "live", revision: 1, snapshot })}\n\n`,
+  }));
+  await page.routeWebSocket(/\/api\/terminal/, (socket) => {
+    opened.push(socket.url());
+    if (owner) {
+      socket.send(JSON.stringify({ type: "occupied", message: "already attached" }));
+      return;
+    }
+    owner = true;
+    socket.onMessage((message) => {
+      const parsed = JSON.parse(message.toString()) as { type: string };
+      if (parsed.type !== "release") return;
+      setTimeout(() => {
+        owner = false;
+        socket.send(JSON.stringify({ type: "released" }));
+      }, 150);
+    });
+    socket.send(JSON.stringify({ type: "ready", mode: "control" }));
+  });
+
+  await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
+  await page.getByRole("button", { name: "Open Test pane on Custom host" }).click();
+  await expect(page.locator(".terminal-header small")).toHaveText("Control");
+
+  await setPageVisibility(page, "hidden");
+  await setPageVisibility(page, "visible");
+  await page.evaluate(() => {
+    window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+    window.dispatchEvent(new Event("online"));
+  });
+  await page.waitForTimeout(50);
+  expect(opened).toHaveLength(1);
+
+  await expect.poll(() => opened.length).toBe(2);
+  await expect(page.locator(".terminal-header small")).toHaveText("Control");
+  await expect(page.locator(".terminal-overlay")).toHaveCount(0);
+});
+
+test("resumes after mobile pagehide and an ordinary pageshow", async ({ page }) => {
+  test.skip(!clientUrl, "A running browser client is required");
+  const opened: string[] = [];
+  await mockTerminal(page, [], opened);
+  await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
+  await page.getByRole("button", { name: "Open Test pane on Custom host" }).click();
+  await expect(page.locator(".terminal-header small")).toHaveText("Control");
+
+  await page.evaluate(() => {
+    window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: false }));
+    window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: false }));
+  });
+
+  await expect.poll(() => opened.length).toBe(2);
+  await expect(page.locator(".terminal-header small")).toHaveText("Control");
+});
+
+test("always offers manual recovery from a background release", async ({ page }) => {
+  test.skip(!clientUrl, "A running browser client is required");
+  const opened: string[] = [];
+  await mockTerminal(page, [], opened);
+  await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
+  await page.getByRole("button", { name: "Open Test pane on Custom host" }).click();
+  await expect(page.locator(".terminal-header small")).toHaveText("Control");
+
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: false })));
+
+  await expect(page.locator(".terminal-header small")).toHaveText("Control released while app was in background");
+  await page.getByRole("button", { name: "Reconnect" }).click();
+  await expect.poll(() => opened.length).toBe(2);
+  await expect(page.locator(".terminal-header small")).toHaveText("Control");
+});
+
+test("recovers when refresh overlaps the previous page's release", async ({ page }) => {
+  test.skip(!clientUrl, "A running browser client is required");
+  let owner = false;
+  let releaseRequested = false;
+  let cleanupScheduled = false;
+  let connections = 0;
+
+  await page.route("**/api/session/events", (route) => route.fulfill({
+    contentType: "text/event-stream",
+    body: `data: ${JSON.stringify({ status: "live", revision: 1, snapshot })}\n\n`,
+  }));
+  await page.routeWebSocket(/\/api\/terminal/, (socket) => {
+    connections += 1;
+    if (owner) {
+      socket.send(JSON.stringify({ type: "occupied", message: "old page still attached" }));
+      if (releaseRequested && !cleanupScheduled) {
+        cleanupScheduled = true;
+        setTimeout(() => { owner = false; }, 150);
+      }
+      return;
+    }
+
+    owner = true;
+    const scheduleRelease = () => {
+      releaseRequested = true;
+    };
+    socket.onMessage((message) => {
+      const parsed = JSON.parse(message.toString()) as { type: string };
+      if (parsed.type === "release") scheduleRelease();
+    });
+    socket.onClose(scheduleRelease);
+    socket.send(JSON.stringify({ type: "ready", mode: "control" }));
+  });
+
+  await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
+  await page.getByRole("button", { name: "Open Test pane on Custom host" }).click();
+  await expect(page.locator(".terminal-header small")).toHaveText("Control");
+
+  await page.reload();
+
+  await expect(page.locator(".terminal-header small")).toHaveText("Control");
+  await expect(page.locator(".terminal-overlay")).toHaveCount(0);
+  expect(connections).toBeGreaterThanOrEqual(3);
 });
 
 test("replaces connections left open by mobile suspension", async ({ page }) => {

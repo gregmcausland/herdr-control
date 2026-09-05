@@ -62,7 +62,7 @@ describe("workspace grouping", () => {
     expect(groups[1].panes.map((item) => item.pane_id)).toEqual(["shell"]);
   });
 
-  it("puts every current Run first, including non-repository workspace groups", () => {
+  it("puts every working Project first without letting newer idle Runs split the working tier", () => {
     const projects: ProjectInfo[] = [
       {
         project_id: "project-bravo",
@@ -100,31 +100,33 @@ describe("workspace grouping", () => {
       },
     ];
 
-    const running = pane("working-pane", "working", "working");
-    running.project_id = "project-bravo";
-    running.run_id = "run-bravo";
-    running.run_started_at = "2026-08-24T11:00:00.000Z";
-    const nonRepositoryRun = pane("done-pane", "xlean", "done");
-    nonRepositoryRun.run_id = "run-xlean";
-    nonRepositoryRun.run_started_at = "2026-08-24T14:00:00.000Z";
+    const bravo = pane("working-bravo", "working-bravo", "working");
+    bravo.project_id = "project-bravo";
+    bravo.run_id = "run-bravo";
+    bravo.run_started_at = "2026-08-24T11:00:00.000Z";
+    const alpha = pane("working-alpha", "working-alpha", "working");
+    alpha.project_id = "project-alpha";
+    alpha.run_id = "run-alpha";
+    alpha.run_started_at = "2026-08-24T10:00:00.000Z";
+    const newerIdleRun = pane("idle-pane", "xlean", "idle");
+    newerIdleRun.run_id = "run-xlean";
+    newerIdleRun.run_started_at = "2026-08-24T14:00:00.000Z";
     const groups = groupPanesByProject(
       projects,
       [],
-      [workspace("working"), workspace("xlean")],
-      [running, nonRepositoryRun],
+      [workspace("working-bravo"), workspace("working-alpha"), workspace("xlean")],
+      [bravo, newerIdleRun, alpha],
     );
 
     expect(groups.map(({ id }) => id)).toEqual([
-      "workspace:xlean",
-      "project-bravo",
-      "project-latest",
-      "project-recent",
       "project-alpha",
+      "project-bravo",
+      "workspace:xlean",
     ]);
     expect(projects[0].project_id).toBe("project-bravo");
   });
 
-  it("retains an empty durable Project so new work can be created in it", () => {
+  it("omits durable Projects without active panes", () => {
     const projects: ProjectInfo[] = [{
       project_id: "project-1",
       name: "Control",
@@ -134,11 +136,6 @@ describe("workspace grouping", () => {
       updated_at: "2026-08-20T00:00:00.000Z",
     }];
 
-    expect(groupPanesByProject(projects, [], [], [])).toEqual([{
-      id: "project-1",
-      label: "Control",
-      project: projects[0],
-      panes: [],
-    }]);
+    expect(groupPanesByProject(projects, [], [], [])).toEqual([]);
   });
 });

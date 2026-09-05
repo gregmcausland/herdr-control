@@ -3,7 +3,7 @@ import { isRecentArchive } from "../shared/archive-policy";
 import type { ControlHost } from "./hosts";
 import type { HostSessionFeed } from "./live-session";
 import {
-  compareProjectRecency,
+  compareProjectActivity,
   groupPanesByProject,
   type ProjectPaneGroup,
 } from "./workspace-groups";
@@ -21,6 +21,14 @@ export interface HostedArchivedThread {
   feedStatus: HostSessionFeed["status"];
   snapshot: SessionSnapshot;
   thread: ThreadInfo;
+}
+
+export interface HostedProject {
+  key: string;
+  host: ControlHost;
+  feedStatus: HostSessionFeed["status"];
+  snapshot: SessionSnapshot;
+  project: NonNullable<SessionSnapshot["projects"]>[number];
 }
 
 /** Produces one globally sorted Project list without adding a host grouping tier. */
@@ -46,7 +54,26 @@ export function projectsAcrossHosts(feeds: readonly HostSessionFeed[]): HostedPr
       snapshot,
     }));
   }).sort((first, second) => (
-    compareProjectRecency(first, second)
+    compareProjectActivity(first, second)
+    || first.host.label.localeCompare(second.host.label, undefined, { sensitivity: "base" })
+    || first.key.localeCompare(second.key)
+  ));
+}
+
+/** Keeps the complete Project inventory available to the new-Thread flow. */
+export function availableProjectsAcrossHosts(feeds: readonly HostSessionFeed[]): HostedProject[] {
+  return feeds.flatMap((feed) => {
+    const snapshot = feed.snapshot;
+    if (!snapshot) return [];
+    return (snapshot.projects ?? []).map((project) => ({
+      key: hostedKey(feed.host.url, project.project_id),
+      host: feed.host,
+      feedStatus: feed.status,
+      snapshot,
+      project,
+    }));
+  }).sort((first, second) => (
+    first.project.name.localeCompare(second.project.name, undefined, { sensitivity: "base" })
     || first.host.label.localeCompare(second.host.label, undefined, { sensitivity: "base" })
     || first.key.localeCompare(second.key)
   ));

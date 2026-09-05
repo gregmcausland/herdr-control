@@ -86,6 +86,8 @@ export class HerdrTerminalConnection {
   private receivedClose = false;
   private disposed = false;
   private attached = false;
+  private releasePromise?: Promise<void>;
+  private resolveRelease?: () => void;
   private keyQueue: Promise<unknown> = Promise.resolve();
 
   constructor(
@@ -111,6 +113,10 @@ export class HerdrTerminalConnection {
         if (message.type === "closed" || message.type === "occupied") {
           this.attached = false;
           this.receivedClose = true;
+          if (this.resolveRelease) {
+            this.finishRelease();
+            return;
+          }
         }
         this.emit(message);
       } catch {
@@ -134,6 +140,7 @@ export class HerdrTerminalConnection {
     });
 
     this.child.on("close", (code) => {
+      this.finishRelease();
       if (this.disposed || this.receivedClose) return;
       const detail = this.stderr.trim();
       this.emit({
@@ -146,8 +153,7 @@ export class HerdrTerminalConnection {
   send(message: TerminalClientMessage): void {
     if (this.disposed || !this.child.stdin.writable) return;
     if (message.type === "release") {
-      this.attached = false;
-      this.write({ type: "terminal.release" });
+      void this.release();
       return;
     }
     if (!this.attached) return;
@@ -177,16 +183,34 @@ export class HerdrTerminalConnection {
     }
   }
 
+  /** Resolves only after Herdr confirms this process no longer owns the terminal. */
+  release(): Promise<void> {
+    if (this.receivedClose || this.child.exitCode !== null) return Promise.resolve();
+    if (this.releasePromise) return this.releasePromise;
+
+    this.attached = false;
+    this.releasePromise = new Promise<void>((resolve) => {
+      this.resolveRelease = resolve;
+    });
+    this.write({ type: "terminal.release" });
+    return this.releasePromise;
+  }
+
   dispose(): void {
     if (this.disposed) return;
+    void this.release();
     this.disposed = true;
-    this.attached = false;
     if (this.child.stdin.writable) {
-      this.write({ type: "terminal.release" });
       this.child.stdin.end();
     }
     const timer = setTimeout(() => this.child.kill(), 1_000);
     timer.unref();
+  }
+
+  private finishRelease(): void {
+    const resolve = this.resolveRelease;
+    this.resolveRelease = undefined;
+    resolve?.();
   }
 
   private write(message: object): void {

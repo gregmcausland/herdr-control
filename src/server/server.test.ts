@@ -21,11 +21,14 @@ describe("terminal ownership", () => {
   it("accepts control input only after Herdr confirms attachment", async () => {
     let emit: ((message: TerminalServerMessage) => void) | undefined;
     const send = vi.fn<(message: TerminalClientMessage) => void>();
+    let acknowledgeRelease!: () => void;
+    const releaseAcknowledged = new Promise<void>((resolve) => (acknowledgeRelease = resolve));
+    const release = vi.fn(() => releaseAcknowledged);
     const dispose = vi.fn();
     const herdr = {
       connectTerminal: (_options: unknown, next: (message: TerminalServerMessage) => void) => {
         emit = next;
-        return { send, dispose };
+        return { send, release, dispose };
       },
       focusPane: async () => undefined,
       snapshot: async () => snapshot,
@@ -56,7 +59,7 @@ describe("terminal ownership", () => {
     try {
       await once(client, "open");
       client.send(JSON.stringify({ type: "key", key: "enter" }));
-      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => setTimeout(resolve, 20));
       expect(send).not.toHaveBeenCalled();
 
       emit?.({ type: "frame", seq: 1, cols: 80, rows: 24, full: true, data: "" });
@@ -64,10 +67,16 @@ describe("terminal ownership", () => {
       client.send(JSON.stringify({ type: "key", key: "enter" }));
       await vi.waitFor(() => expect(send).toHaveBeenCalledExactlyOnceWith({ type: "key", key: "enter" }));
 
+      client.send(JSON.stringify({ type: "release" }));
+      await vi.waitFor(() => expect(release).toHaveBeenCalledOnce());
+      expect(messages.map((message) => message.type)).toEqual(["ready", "frame"]);
+      acknowledgeRelease();
+      await vi.waitFor(() => expect(messages.map((message) => message.type)).toEqual(["ready", "frame", "released"]));
+
       emit?.({ type: "occupied", message: "terminal attach taken over" });
       client.send(JSON.stringify({ type: "key", key: "esc" }));
       await new Promise((resolve) => setImmediate(resolve));
-      expect(send).toHaveBeenCalledTimes(1);
+      expect(send.mock.calls).toEqual([[{ type: "key", key: "enter" }]]);
     } finally {
       client.close();
       await once(client, "close");

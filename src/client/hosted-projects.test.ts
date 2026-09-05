@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { PaneInfo, ProjectInfo, SessionSnapshot } from "../shared/protocol";
 import type { ControlHost } from "./hosts";
-import { archivedThreadsAcrossHosts, projectsAcrossHosts, recentArchivedThreads } from "./hosted-projects";
+import {
+  archivedThreadsAcrossHosts,
+  availableProjectsAcrossHosts,
+  projectsAcrossHosts,
+  recentArchivedThreads,
+} from "./hosted-projects";
 import type { HostSessionFeed } from "./live-session";
 
 const serverMz = { label: "Server MZ", url: "https://server.example" } satisfies ControlHost;
@@ -19,7 +24,7 @@ function project(name: string, lastRunAt?: string): ProjectInfo {
   };
 }
 
-function pane(host: string, runStartedAt?: string): PaneInfo {
+function pane(host: string, runStartedAt?: string, agentStatus = "idle"): PaneInfo {
   return {
     pane_id: "w1:p1",
     tab_id: "w1:t1",
@@ -28,6 +33,7 @@ function pane(host: string, runStartedAt?: string): PaneInfo {
     project_id: "shared-project-id",
     run_id: runStartedAt ? `${host}-run` : undefined,
     run_started_at: runStartedAt,
+    agent_status: agentStatus,
     focused: false,
   };
 }
@@ -72,20 +78,32 @@ describe("multi-host Project projection", () => {
     expect(new Set(groups.map(({ key }) => key)).size).toBe(2);
   });
 
-  it("sorts current Runs globally and retains a stale host's last snapshot", () => {
+  it("puts a working Project above a newer idle Run across hosts and retains stale snapshots", () => {
     const groups = projectsAcrossHosts([
       feed(serverMz, {
         status: "stale",
-        snapshot: snapshot(project("Older"), pane("server", "2026-08-25T11:00:00.000Z")),
+        snapshot: snapshot(project("Working Zulu"), pane("server", "2026-08-25T11:00:00.000Z", "working")),
       }),
       feed(alienMz, {
-        snapshot: snapshot(project("Latest"), pane("alien", "2026-08-25T13:00:00.000Z")),
+        snapshot: snapshot(project("Idle Alpha"), pane("alien", "2026-08-25T13:00:00.000Z")),
       }),
       feed({ label: "Offline", url: "https://offline.example" }, { status: "stale" }),
     ]);
 
-    expect(groups.map(({ label }) => label)).toEqual(["Latest", "Older"]);
-    expect(groups[1].feedStatus).toBe("stale");
+    expect(groups.map(({ label }) => label)).toEqual(["Working Zulu", "Idle Alpha"]);
+    expect(groups[0].feedStatus).toBe("stale");
+  });
+
+  it("hides an empty Project from the main projection but keeps it in the creation inventory", () => {
+    const current = snapshot(project("Active"), pane("server"));
+    current.projects!.push({ ...project("Dormant"), project_id: "dormant-project" });
+    const feeds = [feed(serverMz, { snapshot: current })];
+
+    expect(projectsAcrossHosts(feeds).map(({ label }) => label)).toEqual(["Active"]);
+    expect(availableProjectsAcrossHosts(feeds).map(({ project: item }) => item.name)).toEqual([
+      "Active",
+      "Dormant",
+    ]);
   });
 
   it("qualifies archived Threads from different hosts", () => {

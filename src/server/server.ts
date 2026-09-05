@@ -334,9 +334,13 @@ export function createControlServer(
           });
           return;
         }
-        if (message.type === "release") attached = false;
-        if (mode === "observe" && message.type !== "release") return;
-        if (mode === "control" && !attached && message.type !== "release") return;
+        if (message.type === "release") {
+          attached = false;
+          void terminal.release().then(() => send({ type: "released" }));
+          return;
+        }
+        if (mode === "observe") return;
+        if (mode === "control" && !attached) return;
         terminal.send(message);
       } catch (error) {
         send({ type: "error", message: error instanceof Error ? error.message : "Invalid terminal command" });

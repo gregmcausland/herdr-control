@@ -54,6 +54,7 @@ test("keeps one host usable while another disconnects and recovers", async ({ pa
     await expect(secondStatus).toHaveClass(/stale/);
     await expect(homeStatus).toHaveClass(/live/);
     await expect(page.getByText("Second project", { exact: true })).toBeVisible();
+    await expect(page.locator(".notice.error")).toHaveCount(0);
 
     await second.start(secondPort);
     await page.evaluate(() => window.dispatchEvent(new Event("online")));
@@ -112,6 +113,35 @@ test("opens the mobile task composer through the agent fan", async ({ page }) =>
   }
 });
 
+test("keeps inactive Projects out of the main list and available through New thread", async ({ page }) => {
+  let controlHosts: readonly ControlHost[] = [];
+  const home = new FakeBridge(
+    "Home MZ",
+    "Active project",
+    () => controlHosts,
+    true,
+    ["codex"],
+    ["Dormant project"],
+  );
+  const homeUrl = await home.start();
+  controlHosts = [{ label: "Home MZ", url: homeUrl }];
+
+  try {
+    await page.goto(homeUrl);
+    await expect(page.getByText("Active project", { exact: true })).toBeVisible();
+    await expect(page.getByText("Dormant project", { exact: true })).toHaveCount(0);
+
+    await page.getByRole("button", { name: "New thread", exact: true }).click();
+    const picker = page.getByRole("dialog", { name: "Choose a project" });
+    await expect(picker.getByText("Active project", { exact: true })).toBeVisible();
+    await picker.getByRole("button", { name: /Dormant project/ }).click();
+
+    await expect(page.getByRole("dialog", { name: "Choose an agent for Dormant project" })).toBeVisible();
+  } finally {
+    await home.stop();
+  }
+});
+
 class FakeBridge {
   private readonly responses = new Set<ServerResponse>();
   private readonly server = createServer((request, response) => this.respond(request, response));
@@ -123,6 +153,7 @@ class FakeBridge {
     private readonly controlHosts: () => readonly ControlHost[] = () => [],
     private readonly serveClient = false,
     private readonly agents: readonly string[] = ["codex", "claude", "pi"],
+    private readonly inactiveProjects: readonly string[] = [],
   ) {}
 
   get port(): number {
@@ -170,7 +201,7 @@ class FakeBridge {
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
       });
-      response.write(`data: ${JSON.stringify(feedState(this.label, this.projectName))}\n\n`);
+      response.write(`data: ${JSON.stringify(feedState(this.label, this.projectName, this.inactiveProjects))}\n\n`);
       this.responses.add(response);
       request.on("close", () => this.responses.delete(response));
       return;
@@ -188,11 +219,11 @@ class FakeBridge {
   }
 }
 
-function feedState(label: string, projectName: string): SessionFeedState {
-  return { status: "live", revision: 1, snapshot: snapshot(label, projectName) };
+function feedState(label: string, projectName: string, inactiveProjects: readonly string[]): SessionFeedState {
+  return { status: "live", revision: 1, snapshot: snapshot(label, projectName, inactiveProjects) };
 }
 
-function snapshot(label: string, projectName: string): SessionSnapshot {
+function snapshot(label: string, projectName: string, inactiveProjects: readonly string[] = []): SessionSnapshot {
   const id = label.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-");
   const timestamp = "2026-08-25T00:00:00.000Z";
   return {
@@ -225,14 +256,17 @@ function snapshot(label: string, projectName: string): SessionSnapshot {
       agent_status: "idle",
       focused: true,
     }],
-    projects: [{
-      project_id: `${id}:project`,
-      name: projectName,
-      repo_key: `/${id}/.git`,
-      repo_root: `/${id}`,
-      created_at: timestamp,
-      updated_at: timestamp,
-    }],
+    projects: [projectName, ...inactiveProjects].map((name, index) => {
+      const projectId = index === 0 ? id : name.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-");
+      return {
+        project_id: `${projectId}:project`,
+        name,
+        repo_key: `/${projectId}/.git`,
+        repo_root: `/${projectId}`,
+        created_at: timestamp,
+        updated_at: timestamp,
+      };
+    }),
     worktrees: [],
     threads: [],
   };

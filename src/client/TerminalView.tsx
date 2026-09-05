@@ -1,17 +1,16 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { PaneInfo, TerminalMode, TerminalServerMessage } from "../shared/protocol";
+import { useEffect, useRef, useState } from "react";
+import type { PaneInfo, TerminalMode } from "../shared/protocol";
 import { MobileTerminalControls } from "./MobileTerminalControls";
 import { WorkingActivity } from "./WorkingActivity";
 import { createTerminalColorAdapter, type TerminalColorAdapter } from "./terminal-color-adapter";
 import { attachTerminalInput, type TerminalInputController } from "./terminal-input";
 import { createTerminalLinkInteractions } from "./terminal-links";
+import { createTerminalSession, type TerminalSession, type TerminalSessionState } from "./terminal-session";
 import { attachTerminalViewport } from "./terminal-viewport";
 import { terminalMinimumContrastRatio, terminalThemeFor, type ThemeId } from "./theme";
-
-type ConnectionState = "connecting" | "connected" | "occupied" | "disconnected" | "released";
 
 interface Props {
   bridgeUrl: string;
@@ -34,7 +33,7 @@ function websocketUrl(bridgeUrl: string, paneId: string, mode: TerminalMode, tak
     cols: String(terminal.cols),
     rows: String(terminal.rows),
   }).toString();
-  return url;
+  return url.toString();
 }
 
 function decodeBase64(value: string): Uint8Array {
@@ -46,100 +45,15 @@ export function TerminalView({ bridgeUrl, pane, themeId, fontFamily, fontSize, c
   const screenRef = useRef<HTMLElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | undefined>(undefined);
+  const fitRef = useRef<FitAddon | undefined>(undefined);
   const inputRef = useRef<TerminalInputController | undefined>(undefined);
   const colorAdapterRef = useRef<TerminalColorAdapter | undefined>(undefined);
-  const socketRef = useRef<WebSocket | undefined>(undefined);
-  const modeRef = useRef<TerminalMode>("control");
-  const openRef = useRef<(mode: TerminalMode, takeover?: boolean) => void>(() => undefined);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const reconnectAttemptRef = useRef(0);
-  const wantsConnectionRef = useRef(true);
-  const [mode, setMode] = useState<TerminalMode>("control");
-  const [state, setState] = useState<ConnectionState>("connecting");
-  const [message, setMessage] = useState("Connecting…");
-
-  const clearReconnect = useCallback(() => {
-    if (reconnectTimerRef.current === undefined) return;
-    clearTimeout(reconnectTimerRef.current);
-    reconnectTimerRef.current = undefined;
-  }, []);
-
-  const scheduleReconnect = useCallback(() => {
-    if (!wantsConnectionRef.current || document.hidden || reconnectTimerRef.current !== undefined) return;
-    const delay = Math.min(250 * (2 ** reconnectAttemptRef.current), 4_000);
-    reconnectAttemptRef.current += 1;
-    setState("disconnected");
-    setMessage("Reconnecting…");
-    reconnectTimerRef.current = setTimeout(() => {
-      reconnectTimerRef.current = undefined;
-      if (wantsConnectionRef.current && !document.hidden) openRef.current(modeRef.current);
-    }, delay);
-  }, []);
-
-  const disconnect = useCallback((nextMessage: string, reconnectOnFocus = false) => {
-    clearReconnect();
-    wantsConnectionRef.current = reconnectOnFocus;
-    const socket = socketRef.current;
-    socketRef.current = undefined;
-    if (modeRef.current === "control" && socket?.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: "release" }));
-    }
-    socket?.close();
-    setState(reconnectOnFocus ? "disconnected" : "released");
-    setMessage(nextMessage);
-  }, [clearReconnect]);
-
-  const open = useCallback((nextMode: TerminalMode, takeover = false) => {
-    const terminal = terminalRef.current;
-    if (!terminal) return;
-    clearReconnect();
-    wantsConnectionRef.current = true;
-    const previousSocket = socketRef.current;
-    if (modeRef.current === "control" && previousSocket?.readyState === WebSocket.OPEN) {
-      previousSocket.send(JSON.stringify({ type: "release" }));
-    }
-    previousSocket?.close();
-    modeRef.current = nextMode;
-    setMode(nextMode);
-    setState("connecting");
-    setMessage(nextMode === "control" ? "Acquiring control…" : "Opening observer…");
-
-    const socket = new WebSocket(websocketUrl(bridgeUrl, pane.pane_id, nextMode, takeover, terminal));
-    socketRef.current = socket;
-    socket.onmessage = (event) => {
-      const incoming = JSON.parse(event.data as string) as TerminalServerMessage;
-      if (incoming.type === "ready") {
-        reconnectAttemptRef.current = 0;
-        setState("connected");
-        setMessage(incoming.mode === "control" ? "Control" : "Observing");
-      } else if (incoming.type === "frame") {
-        if (incoming.full) {
-          terminal.reset();
-          colorAdapterRef.current?.reset();
-        }
-        const data = decodeBase64(incoming.data);
-        terminal.write(colorAdapterRef.current?.transform(data) ?? data);
-      } else if (incoming.type === "occupied") {
-        socketRef.current = undefined;
-        clearReconnect();
-        setState("occupied");
-        setMessage("Another browser or direct attach controls this pane.");
-        socket.close();
-      } else if (incoming.type === "error") {
-        setMessage(incoming.message);
-      } else {
-        socket.close();
-      }
-    };
-    socket.onclose = () => {
-      if (socketRef.current !== socket) return;
-      socketRef.current = undefined;
-      scheduleReconnect();
-    };
-    socket.onerror = () => setMessage("Terminal connection interrupted");
-  }, [bridgeUrl, clearReconnect, pane.pane_id, scheduleReconnect]);
-
-  openRef.current = open;
+  const sessionRef = useRef<TerminalSession | undefined>(undefined);
+  const [sessionState, setSessionState] = useState<TerminalSessionState>({
+    phase: "connecting",
+    mode: "control",
+    message: "Connecting…",
+  });
 
   useEffect(() => {
     let terminal!: Terminal;
@@ -160,6 +74,7 @@ export function TerminalView({ bridgeUrl, pane, themeId, fontFamily, fontSize, c
     });
     colorAdapterRef.current = createTerminalColorAdapter(themeId);
     const fit = new FitAddon();
+    fitRef.current = fit;
     terminal.loadAddon(fit);
     terminal.loadAddon(new WebLinksAddon(links.activate, {
       hover: links.hover,
@@ -170,21 +85,28 @@ export function TerminalView({ bridgeUrl, pane, themeId, fontFamily, fontSize, c
     const detachViewport = attachTerminalViewport(screenRef.current!);
     fit.fit();
 
+    const session = createTerminalSession({
+      url: (mode, takeover) => websocketUrl(bridgeUrl, pane.pane_id, mode, takeover, terminal),
+      onState: setSessionState,
+      onFrame: (frame) => {
+        if (frame.full) {
+          terminal.reset();
+          colorAdapterRef.current?.reset();
+        }
+        const data = decodeBase64(frame.data);
+        terminal.write(colorAdapterRef.current?.transform(data) ?? data);
+      },
+    });
+    sessionRef.current = session;
+
     const input = attachTerminalInput({
       terminal,
       host: containerRef.current!,
       bridgeUrl,
       channel: {
-        active: () => (
-          modeRef.current === "control" && socketRef.current?.readyState === WebSocket.OPEN
-        ),
-        send: (message) => {
-          const socket = socketRef.current;
-          if (modeRef.current === "control" && socket?.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify(message));
-          }
-        },
-        status: setMessage,
+        active: () => sessionRef.current?.isControlling() ?? false,
+        send: (message) => { sessionRef.current?.send(message); },
+        status: (message) => setSessionState((current) => ({ ...current, message })),
       },
     });
     inputRef.current = input;
@@ -192,60 +114,61 @@ export function TerminalView({ bridgeUrl, pane, themeId, fontFamily, fontSize, c
     const observer = new ResizeObserver(() => fit.fit());
     observer.observe(containerRef.current!);
     const followPageVisibility = () => {
-      if (document.visibilityState === "hidden") {
-        if (wantsConnectionRef.current) disconnect("Control released while app was in background", true);
-      } else if (wantsConnectionRef.current) {
-        // Mobile browsers can suspend without closing a socket. Replace it on
-        // resume even when it still claims to be open, so Herdr sends a fresh frame.
-        openRef.current(modeRef.current);
-      }
+      if (document.visibilityState === "hidden") session.suspend();
+      else session.resume();
     };
-    const releaseOnPageHide = () => {
-      if (wantsConnectionRef.current) disconnect("Control released while app was in background", true);
-    };
-    const reconnectFromPageCache = (event: PageTransitionEvent) => {
-      if (event.persisted && wantsConnectionRef.current) openRef.current(modeRef.current);
+    const releaseOnPageHide = () => session.suspend();
+    const reconnectWhenActive = () => {
+      if (!document.hidden && session.getState().phase !== "connected") session.resume();
     };
     document.addEventListener("visibilitychange", followPageVisibility);
+    document.addEventListener("freeze", releaseOnPageHide);
+    document.addEventListener("resume", reconnectWhenActive);
     window.addEventListener("pagehide", releaseOnPageHide);
-    window.addEventListener("pageshow", reconnectFromPageCache);
-    window.addEventListener("online", followPageVisibility);
-    open("control");
+    window.addEventListener("pageshow", reconnectWhenActive);
+    window.addEventListener("focus", reconnectWhenActive);
+    window.addEventListener("online", reconnectWhenActive);
+    session.connect("control");
 
     return () => {
-      wantsConnectionRef.current = false;
-      clearReconnect();
-      const socket = socketRef.current;
-      socketRef.current = undefined;
-      if (socket?.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: "release" }));
-      }
-      socket?.close();
+      session.dispose();
+      sessionRef.current = undefined;
       document.removeEventListener("visibilitychange", followPageVisibility);
+      document.removeEventListener("freeze", releaseOnPageHide);
+      document.removeEventListener("resume", reconnectWhenActive);
       window.removeEventListener("pagehide", releaseOnPageHide);
-      window.removeEventListener("pageshow", reconnectFromPageCache);
-      window.removeEventListener("online", followPageVisibility);
+      window.removeEventListener("pageshow", reconnectWhenActive);
+      window.removeEventListener("focus", reconnectWhenActive);
+      window.removeEventListener("online", reconnectWhenActive);
       observer.disconnect();
       detachViewport();
       input.dispose();
       inputRef.current = undefined;
+      fitRef.current = undefined;
       colorAdapterRef.current = undefined;
       terminal.dispose();
       terminalRef.current = undefined;
     };
-  }, [clearReconnect, cursorBlink, disconnect, fontFamily, fontSize, open, themeId]);
+  }, [bridgeUrl, pane.pane_id]);
 
   useEffect(() => {
-    if (pane.agent_status !== "done" || state !== "connected" || document.hidden) return;
-    const socket = socketRef.current;
-    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "view" }));
-  }, [pane.agent_status, state]);
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    terminal.options.cursorBlink = cursorBlink;
+    terminal.options.fontFamily = fontFamily;
+    terminal.options.fontSize = fontSize;
+    terminal.options.minimumContrastRatio = terminalMinimumContrastRatio(themeId);
+    terminal.options.theme = terminalThemeFor(themeId);
+    colorAdapterRef.current = createTerminalColorAdapter(themeId);
+    fitRef.current?.fit();
+  }, [cursorBlink, fontFamily, fontSize, themeId]);
 
-  function release() {
-    disconnect("Control released");
-  }
+  useEffect(() => {
+    if (pane.agent_status !== "done" || sessionState.phase !== "connected" || document.hidden) return;
+    sessionRef.current?.send({ type: "view" });
+  }, [pane.agent_status, sessionState.phase]);
 
-  const inputActive = state === "connected" && mode === "control";
+  const inputActive = sessionState.phase === "connected" && sessionState.mode === "control";
   const messageAvailable = Boolean(pane.thread_id);
   const paneLabel = pane.terminal_title_stripped ?? pane.label ?? pane.pane_id;
   const working = pane.agent_status === "working";
@@ -266,17 +189,17 @@ export function TerminalView({ bridgeUrl, pane, themeId, fontFamily, fontSize, c
           />
           <span className="terminal-heading-copy">
             <strong>{paneLabel}</strong>
-            <small>{message}</small>
+            <small>{sessionState.message}</small>
           </span>
         </div>
-        {state === "connected" && mode === "control" && (
-          <button className="secondary terminal-action" onClick={release}>Release</button>
+        {sessionState.phase === "connected" && sessionState.mode === "control" && (
+          <button className="secondary terminal-action" onClick={() => sessionRef.current?.release()}>Release</button>
         )}
-        {state === "connected" && mode === "observe" && (
-          <button className="terminal-action primary" onClick={() => open("control", true)}>Control here</button>
+        {sessionState.phase === "connected" && sessionState.mode === "observe" && (
+          <button className="terminal-action primary" onClick={() => sessionRef.current?.connect("control", true)}>Control here</button>
         )}
-        {state === "released" && (
-          <button className="terminal-action primary" onClick={() => open(mode)}>Reconnect</button>
+        {(sessionState.phase === "released" || sessionState.phase === "disconnected") && (
+          <button className="terminal-action primary" onClick={() => sessionRef.current?.connect(sessionState.mode)}>Reconnect</button>
         )}
       </header>
       <div className="terminal-frame">
@@ -302,12 +225,12 @@ export function TerminalView({ bridgeUrl, pane, themeId, fontFamily, fontSize, c
           if (!response.ok) throw new Error(body?.error ?? `Request failed with status ${response.status}`);
         }}
       />
-      {state === "occupied" && (
+      {sessionState.phase === "occupied" && (
         <div className="terminal-overlay">
-          <p>{message}</p>
+          <p>{sessionState.message}</p>
           <div className="overlay-actions">
-            <button onClick={() => open("observe")}>Observe</button>
-            <button onClick={() => open("control", true)}>Control here</button>
+            <button onClick={() => sessionRef.current?.connect("observe")}>Observe</button>
+            <button onClick={() => sessionRef.current?.connect("control", true)}>Control here</button>
             <button className="secondary" onClick={onBack}>Return to panes</button>
           </div>
         </div>

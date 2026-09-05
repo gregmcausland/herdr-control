@@ -17,6 +17,7 @@ export type TerminalClientMessage =
 
 export type TerminalServerMessage =
   | { type: "ready"; mode: TerminalMode }
+  | { type: "released" }
   | {
       type: "frame";
       seq: number;

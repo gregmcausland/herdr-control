@@ -8,6 +8,7 @@ import type {
 } from "../shared/protocol";
 import { useControlHosts } from "./control-hosts";
 import {
+  availableProjectsAcrossHosts,
   archivedThreadsAcrossHosts,
   projectsAcrossHosts,
   recentArchivedThreads,
@@ -50,6 +51,7 @@ export interface OrchestrationState {
   settingsOpen: boolean;
   hostsOpen: boolean;
   archiveOpen: boolean;
+  projectPickerOpen: boolean;
   paneAction?: PaneAction;
   pendingAction: boolean;
   actionError?: string;
@@ -64,7 +66,7 @@ export interface OrchestrationState {
 export type OrchestrationEvent =
   | { type: "terminal.opened"; selection: TerminalSelection }
   | { type: "terminal.closed" }
-  | { type: "settings.opened" | "settings.closed" | "hosts.opened" | "hosts.closed" | "archive.opened" | "archive.closed" }
+  | { type: "settings.opened" | "settings.closed" | "hosts.opened" | "hosts.closed" | "archive.opened" | "archive.closed" | "project_picker.opened" | "project_picker.closed" }
   | { type: "pane_action.opened"; action: PaneAction }
   | { type: "pane_action.cancelled" | "pane_action.started" | "pane_action.completed" }
   | { type: "pane_action.failed"; error: string }
@@ -84,6 +86,7 @@ export function initialOrchestrationState(
     settingsOpen: false,
     hostsOpen: false,
     archiveOpen: false,
+    projectPickerOpen: false,
     pendingAction: false,
     creationPending: false,
   };
@@ -103,6 +106,8 @@ export function orchestrationReducer(
     case "hosts.closed": return { ...state, hostsOpen: false };
     case "archive.opened": return { ...state, archiveOpen: true };
     case "archive.closed": return { ...state, archiveOpen: false };
+    case "project_picker.opened": return { ...state, projectPickerOpen: true };
+    case "project_picker.closed": return { ...state, projectPickerOpen: false };
     case "pane_action.opened":
       return { ...state, paneAction: event.action, actionError: undefined };
     case "pane_action.cancelled":
@@ -118,7 +123,7 @@ export function orchestrationReducer(
     case "restore.completed":
       return { ...state, restoringThreadKey: undefined, actionError: event.error };
     case "creation_launcher.opened":
-      return { ...state, creationLauncherTarget: event.target, creationError: undefined };
+      return { ...state, projectPickerOpen: false, creationLauncherTarget: event.target, creationError: undefined };
     case "creation_launcher.cancelled":
       return { ...state, creationLauncherTarget: undefined };
     case "creation.opened":
@@ -284,6 +289,7 @@ export function useControlOrchestration() {
     liveSessions,
     agentInventories,
     projectGroups: projectsAcrossHosts(liveSessions),
+    availableProjects: availableProjectsAcrossHosts(liveSessions),
     archivedThreads,
     recentArchivedThreads: recentArchivedThreads(archivedThreads),
     activePane,
@@ -295,6 +301,8 @@ export function useControlOrchestration() {
     closeHosts: () => dispatch({ type: "hosts.closed" }),
     openArchive: () => dispatch({ type: "archive.opened" }),
     closeArchive: () => dispatch({ type: "archive.closed" }),
+    openProjectPicker: () => dispatch({ type: "project_picker.opened" }),
+    closeProjectPicker: () => dispatch({ type: "project_picker.closed" }),
     openPaneAction: (action: PaneAction) => dispatch({ type: "pane_action.opened", action }),
     cancelPaneAction: () => dispatch({ type: "pane_action.cancelled" }),
     confirmPaneAction,

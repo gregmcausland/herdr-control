@@ -44,8 +44,10 @@ describe("orchestrationReducer", () => {
       },
       snapshot: { version: "test", protocol: 19, workspaces: [], tabs: [], panes: [] },
     };
-    let state = orchestrationReducer(initialOrchestrationState(), { type: "creation_launcher.opened", target });
-    expect(state.creationLauncherTarget).toBe(target);
+    let state = orchestrationReducer(initialOrchestrationState(), { type: "project_picker.opened" });
+    expect(state.projectPickerOpen).toBe(true);
+    state = orchestrationReducer(state, { type: "creation_launcher.opened", target });
+    expect(state).toMatchObject({ projectPickerOpen: false, creationLauncherTarget: target });
 
     state = orchestrationReducer(state, { type: "creation.opened", target, agent: "pi" });
     expect(state).toMatchObject({ creationLauncherTarget: undefined, creationTarget: target, creationAgent: "pi" });

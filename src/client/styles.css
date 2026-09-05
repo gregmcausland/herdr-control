@@ -71,6 +71,7 @@ button:disabled { cursor: default; opacity: .5; }
 .host-status { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .settings-trigger { width: 32px; height: 32px; color: var(--color-text-muted); }
 .hosts-trigger { width: 32px; height: 32px; color: var(--color-text-muted); }
+.new-thread-trigger { width: 32px; height: 32px; color: var(--color-text-muted); }
 
 .inventory { display: grid; gap: 18px; }
 .workspace-group { display: grid; gap: 9px; }
@@ -286,6 +287,23 @@ button:disabled { cursor: default; opacity: .5; }
 }
 .archive-screen .archived-thread-title { opacity: .82; }
 .archive-empty { margin: 0; color: var(--color-text-muted); font-size: 13px; }
+.project-picker-screen { --task-content-width: 720px; }
+.project-picker-list { display: grid; }
+.project-picker-item {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 14px 2px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent);
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-weight: 400;
+  text-align: left;
+}
+.project-picker-item:hover:not(:disabled) { background: var(--color-surface-interactive); }
+.project-picker-item small { color: var(--color-text-muted); font-size: 11px; font-weight: 400; }
 
 .task-surface,
 .confirm-surface {

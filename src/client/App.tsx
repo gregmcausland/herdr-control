@@ -11,6 +11,7 @@ import { applyFontSettings, readAppSettings, storeAppSettings } from "./settings
 import { applyAppTheme } from "./theme";
 import { WorkingActivity } from "./WorkingActivity";
 import { ArchiveIcon, ArchiveScreen, ArchivedThreadList } from "./ArchiveScreen";
+import { ProjectPickerScreen } from "./ProjectPickerScreen";
 import { workingDuration } from "./working-duration";
 import { useControlOrchestration, type PaneAction } from "./orchestration-state";
 
@@ -98,6 +99,7 @@ export function App() {
     liveSessions,
     agentInventories,
     projectGroups,
+    availableProjects,
     archivedThreads,
     recentArchivedThreads,
     activePane,
@@ -105,6 +107,7 @@ export function App() {
     settingsOpen,
     hostsOpen,
     archiveOpen,
+    projectPickerOpen,
     paneAction,
     pendingAction,
     actionError,
@@ -174,6 +177,16 @@ export function App() {
             ))}
           </div>
           <button
+            className="secondary icon-button new-thread-trigger"
+            type="button"
+            disabled={!availableProjects.some((project) => project.feedStatus === "live")}
+            aria-label="New thread"
+            title="New thread"
+            onClick={control.openProjectPicker}
+          >
+            <PlusIcon />
+          </button>
+          <button
             className="secondary icon-button hosts-trigger"
             type="button"
             aria-label="Manage Control Hosts"
@@ -197,20 +210,14 @@ export function App() {
       {projectGroups.length === 0 && liveSessions.every((feed) => feed.status === "connecting") && (
         <p className="notice">Connecting to configured Herdr servers…</p>
       )}
-      {projectGroups.length === 0 && liveSessions.some((feed) => feed.status === "live") && (
+      {projectGroups.length === 0 && availableProjects.length > 0 && liveSessions.some((feed) => feed.status === "live") && (
+        <p className="notice">No active threads.</p>
+      )}
+      {projectGroups.length === 0 && availableProjects.length === 0 && liveSessions.some((feed) => feed.status === "live") && (
         <p className="notice">
           Connected. Open a repository-backed workspace in Herdr to create your first Project and Thread.
         </p>
       )}
-      {liveSessions.filter((feed) => (
-        feed.status === "stale"
-        && !feed.snapshot
-        && !feed.message?.startsWith("Unsupported Herdr protocol")
-      )).map((feed) => (
-        <p className="notice error" key={feed.host.url}>
-          <strong>{feed.host.label}:</strong> {feed.message ?? "Unable to connect to bridge"}
-        </p>
-      ))}
       {liveSessions.filter((feed) => feed.message?.startsWith("Unsupported Herdr protocol")).map((feed) => (
         <p className="notice error" key={`${feed.host.url}:compatibility`}>
           <strong>{feed.host.label}:</strong> {feed.message}
@@ -334,6 +341,13 @@ export function App() {
           restoringThreadKey={restoringThreadKey}
           onRestore={(archived) => void control.restoreThread(archived)}
           onClose={control.closeArchive}
+        />
+      )}
+      {projectPickerOpen && (
+        <ProjectPickerScreen
+          projects={availableProjects}
+          onClose={control.closeProjectPicker}
+          onSelect={control.openCreationLauncher}
         />
       )}
       {paneAction && (
