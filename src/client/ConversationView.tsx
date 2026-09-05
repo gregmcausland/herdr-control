@@ -9,6 +9,7 @@ import { WorkingActivity } from "./WorkingActivity";
 import { formatDuration } from "./working-duration";
 import type { ThemeId } from "./theme";
 import { useDictation } from "./use-dictation";
+import { VoiceWaveform } from "./VoiceWaveform";
 
 interface Props {
   hostUrl: string;
@@ -220,20 +221,22 @@ export function ConversationView({ hostUrl, transcriptionUrl, hostLabel, threadI
         {thread && !thread.current_run && !thread.agent_session && <p className="conversation-notice">This agent has stopped and has no resume reference. Your conversation remains readable.</p>}
       </div>
     </div>
-    <form className="conversation-composer" onSubmit={(event) => { event.preventDefault(); void send(); }}>
+    <form className={`conversation-composer ${dictation.available ? "voice-enabled" : ""} ${!draft.text.trim() ? "draft-empty" : ""} ${dictation.busy ? "voice-busy" : ""}`} onSubmit={(event) => { event.preventDefault(); void send(); }}>
       {!following && <button type="button" className="jump-latest secondary" onClick={() => { followingRef.current = true; reader.current!.scrollTop = reader.current!.scrollHeight; setFollowing(true); }}>Jump to latest ↓</button>}
       {working && <ConversationWorking agent={agent} startedAt={thread.current_run?.working_started_at} themeId={themeId} />}
       {(error || readError || uncertain || dictation.error) && <p className="message-error" role="status">{uncertain ? receipt.error : error ?? readError ?? dictation.error}</p>}
       <div className="conversation-input">
+      {dictation.stream && <div className="voice-feedback"><VoiceWaveform stream={dictation.stream} /></div>}
       <label htmlFor="conversation-draft" className="sr-only">Message</label>
-      <textarea id="conversation-draft" value={draft.text} onChange={(event) => edit(event.target.value)} disabled={pending} placeholder={active ? `Message ${agent}…` : "Write a draft…"} rows={2} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void send(); } }} />
+      <textarea id="conversation-draft" value={draft.text} onChange={(event) => edit(event.target.value)} disabled={pending} placeholder={dictation.available ? "Type a message…" : active ? `Message ${agent}…` : "Write a draft…"} rows={2} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void send(); } }} />
       <footer><small role={dictation.busy ? "status" : undefined}>{dictation.phase === "starting" ? "Waiting for microphone…" : dictation.phase === "recording" ? `Recording · ${dictation.seconds}s / 120s` : dictation.phase === "transcribing" ? "Transcribing…" : draft.text ? draftSaved ? "Draft saved on this device" : "Device storage unavailable · keep this page open" : working ? "You can write while it works" : active ? `Connected to ${agent}` : "Drafts stay on this device"}</small>
         <div className="composer-buttons">
           {dictation.busy && <button type="button" className="secondary dictation-cancel" onClick={dictation.cancel}>Cancel</button>}
           {dictation.available && <button type="button" className={`secondary dictation-mic ${dictation.phase === "recording" ? "recording" : ""}`} disabled={pending || dictation.phase === "starting" || dictation.phase === "transcribing"} aria-label={dictation.phase === "recording" ? "Stop recording" : "Dictate message"} title={dictation.phase === "recording" ? "Stop and transcribe" : "Dictate message"} onClick={() => dictation.phase === "recording" ? dictation.stop() : void dictation.start()}>
             <svg viewBox="0 0 24 24" aria-hidden="true">{dictation.phase === "recording" ? <rect x="6" y="6" width="12" height="12" rx="2" /> : <><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8" /></>}</svg>
+            <span className="dictation-button-label">{dictation.phase === "recording" ? "Finish" : draft.text.trim() ? "Add voice" : "Tap to speak"}</span>
           </button>}
-          <button disabled={!active || !conversationReady || pending || uncertain || dictation.busy || !draft.text.trim()}>{pending ? "Sending…" : receipt?.delivery === "failed" ? "Retry" : "Send"}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" /></svg></button>
+          <button className="conversation-send" disabled={!active || !conversationReady || pending || uncertain || dictation.busy || !draft.text.trim()}>{pending ? "Sending…" : receipt?.delivery === "failed" ? "Retry" : "Send"}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" /></svg></button>
         </div>
       </footer>
       </div>

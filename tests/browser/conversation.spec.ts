@@ -244,16 +244,22 @@ test.describe("voice input", () => {
     });
     await open(page);
     const draft = page.getByRole("textbox", { name: "Message", exact: true });
+    await expect(page.getByRole("button", { name: "Dictate message" })).toContainText("Tap to speak");
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toBeHidden();
+    expect((await page.getByRole("button", { name: "Dictate message" }).boundingBox())!.width).toBeGreaterThan(280);
+    await page.screenshot({ path: testInfo.outputPath("dictation-ready-phone.png") });
     await draft.fill("Please");
     await page.getByRole("button", { name: "Dictate message" }).click();
     await expect(page.getByRole("status")).toContainText("Recording");
     await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
     await expect(page.getByRole("status")).toContainText("1s / 120s");
+    await expect(page.getByRole("img", { name: "Live microphone waveform" })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("dictation-recording-phone.png") });
     const upload = page.waitForRequest(request => request.url().endsWith("/api/transcription") && request.method() === "POST");
     await page.getByRole("button", { name: "Stop recording" }).click();
     await upload;
     await expect(page.getByRole("status")).toHaveText("Transcribing…");
+    await expect(page.getByRole("img", { name: "Live microphone waveform" })).toHaveCount(0);
     await draft.fill("Please also");
     for (const viewport of [{ width: 1440, height: 1000 }, { width: 320, height: 430 }]) {
       await page.setViewportSize(viewport);
@@ -275,6 +281,57 @@ test.describe("voice input", () => {
     expect(await page.evaluate(() => (window as any).voiceStream.getTracks().every((track: MediaStreamTrack) => track.readyState === "ended"))).toBe(true);
     await page.reload();
     await expect(draft).toHaveValue("Please also Review the Herdr changes.");
+  });
+
+  test("waveform responds to microphone audio and silence, then releases its audio context", async ({ page }, testInfo) => {
+    test.skip(!client, "Browser client required");
+    await fixture(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route("**/api/transcription", route => route.fulfill({ json: { available: true } }));
+    await page.addInitScript(() => {
+      const NativeAudioContext = window.AudioContext;
+      (window as any).waveformContexts = [];
+      window.AudioContext = class extends NativeAudioContext {
+        constructor(options?: AudioContextOptions) {
+          super(options);
+          (window as any).waveformContexts.push(this);
+        }
+      };
+      navigator.mediaDevices.getUserMedia = async () => {
+        const context = new NativeAudioContext();
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        const output = context.createMediaStreamDestination();
+        gain.gain.value = 0;
+        oscillator.connect(gain); gain.connect(output); oscillator.start();
+        await context.resume();
+        (window as any).voiceGain = gain;
+        (window as any).voiceStream = output.stream;
+        return output.stream;
+      };
+    });
+    await open(page);
+    await page.getByRole("button", { name: "Dictate message" }).click();
+    const waveform = page.getByRole("img", { name: "Live microphone waveform" });
+    await expect(waveform).toBeVisible();
+    await expect.poll(() => waveform.evaluate((canvas: HTMLCanvasElement) => canvas.width)).toBeGreaterThan(300);
+    const snapshot = () => waveform.evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL());
+    const silence = await snapshot();
+    await page.evaluate(() => { (window as any).voiceGain.gain.value = 0.15; });
+    await expect.poll(snapshot).not.toBe(silence);
+    await expect(page.getByRole("status")).toContainText("2s / 120s");
+    await page.screenshot({ path: testInfo.outputPath("waveform-speaking-phone.png") });
+    await page.setViewportSize({ width: 320, height: 430 });
+    await expect(page.getByRole("button", { name: "Stop recording" })).toBeInViewport();
+    await expect(waveform).toBeInViewport();
+    await page.screenshot({ path: testInfo.outputPath("waveform-keyboard-phone.png") });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(() => { (window as any).voiceGain.gain.value = 0; });
+    await expect.poll(snapshot, { timeout: 6000 }).toBe(silence);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(waveform).toHaveCount(0);
+    expect(await page.evaluate(() => (window as any).voiceStream.getTracks().every((track: MediaStreamTrack) => track.readyState === "ended"))).toBe(true);
+    await expect.poll(() => page.evaluate(() => (window as any).waveformContexts.every((context: AudioContext) => context.state === "closed"))).toBe(true);
   });
 
   test("cancel releases the microphone without uploading, and navigation drops a pending transcript", async ({ page }) => {

@@ -1040,6 +1040,10 @@ button.thread-options-summary.secondary:hover:not(:disabled) { background: var(-
 .conversation-composer footer .dictation-mic { min-width: 44px; padding: 10px; }
 .conversation-composer footer .dictation-cancel { min-width: 0; padding: 8px; }
 .dictation-mic.recording { color: var(--color-danger, #cf6470); border-color: currentColor; }
+.dictation-button-label { display: none; }
+.voice-feedback { padding: 14px 16px 0; }
+.voice-waveform { display: block; width: 100%; height: 48px; color: var(--color-info); }
+.voice-feedback-unavailable { color: var(--color-text-muted); }
 .message-error { font-size: 12px; margin: 5px 0 10px; }
 .conversation-composer .jump-latest { position: absolute; z-index: 5; right: 24px; top: -44px; min-height: 36px; padding: 7px 12px; font-size: 11px; background: var(--color-canvas); box-shadow: 0 3px 18px color-mix(in srgb, var(--color-canvas) 80%, transparent); }
 .conversation-working { position: relative; isolation: isolate; display: flex; align-items: center; gap: 12px; min-height: 76px; margin: 0 0 10px; padding: 14px 18px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--color-activity-veil) 65%, var(--color-border)); border-radius: 14px; background: color-mix(in srgb, var(--color-activity-veil) 58%, var(--color-canvas)); }
@@ -1067,5 +1071,17 @@ button.thread-options-summary.secondary:hover:not(:disabled) { background: var(-
   .conversation-message.user { margin-left: 12px; padding: 12px 14px; }
   .conversation-toolbar { padding-inline: 10px; }
   .conversation-composer { padding-inline: 12px; }
+  .voice-enabled.draft-empty textarea { min-height: 46px; height: 46px; resize: none; }
+  .voice-enabled.draft-empty.voice-busy textarea { display: none; }
+  .voice-enabled .composer-buttons { flex: 1 0 100%; }
+  .voice-enabled footer .dictation-mic { flex: 1; min-height: 52px; gap: 9px; }
+  .voice-enabled .dictation-button-label { display: inline; font-size: 14px; }
+  .voice-enabled footer .dictation-mic svg { width: 20px; height: 20px; }
+  .voice-enabled.draft-empty:not(.voice-busy) footer small,
+  .voice-enabled.draft-empty:not(.voice-busy) .conversation-send { display: none; }
+  .voice-enabled.draft-empty:not(.voice-busy) .dictation-mic {
+    color: var(--color-canvas); background: var(--color-accent); border-color: transparent;
+  }
+  .voice-enabled .dictation-mic.recording { background: color-mix(in srgb, var(--color-danger, #cf6470) 12%, transparent); }
   .conversation-working { min-height: 68px; padding: 12px; gap: 10px; }
 }

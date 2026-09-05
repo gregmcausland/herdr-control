@@ -20,6 +20,7 @@ export function useDictation(bridgeUrl: string, onTranscript: (text: string) => 
   const [available, setAvailable] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [seconds, setSeconds] = useState(0);
+  const [stream, setStream] = useState<MediaStream>();
   const [error, setError] = useState<string>();
   const current = useRef<Recording | undefined>(undefined);
   const receive = useRef(onTranscript);
@@ -29,6 +30,7 @@ export function useDictation(bridgeUrl: string, onTranscript: (text: string) => 
     const recording = current.current;
     current.current = undefined;
     if (recording) { recording.controller.abort(); release(recording); }
+    setStream(undefined);
     setPhase("idle");
   }, []);
 
@@ -56,6 +58,7 @@ export function useDictation(bridgeUrl: string, onTranscript: (text: string) => 
     const recording = current.current;
     if (!recording?.recorder || recording.recorder.state !== "recording") return;
     setPhase("transcribing");
+    setStream(undefined);
     release(recording);
   };
 
@@ -83,6 +86,7 @@ export function useDictation(bridgeUrl: string, onTranscript: (text: string) => 
         release(recording);
         if (current.current !== recording) return;
         setPhase("transcribing");
+        setStream(undefined);
         try {
           const audio = new Blob(chunks, { type: recorder.mimeType });
           if (!audio.size) throw new Error("The recording was empty. Please try again.");
@@ -100,6 +104,7 @@ export function useDictation(bridgeUrl: string, onTranscript: (text: string) => 
         }
       };
       recorder.start();
+      setStream(stream);
       setPhase("recording");
       const began = Date.now();
       recording.timer = setInterval(() => {
@@ -116,5 +121,5 @@ export function useDictation(bridgeUrl: string, onTranscript: (text: string) => 
     }
   };
 
-  return { available, phase, seconds, error, start, stop, cancel, busy: phase !== "idle" };
+  return { available, phase, seconds, stream, error, start, stop, cancel, busy: phase !== "idle" };
 }

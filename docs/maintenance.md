@@ -40,7 +40,7 @@ supports Node.js 22.5 or newer; JavaScript dependency versions remain pinned by
 | Agent ANSI output | SGR parsing and light-theme remapping for dark true-colour TUI surfaces | `src/client/terminal-color-adapter.ts` | `src/client/terminal-color-adapter.test.ts`, `tests/browser/theme.spec.ts` |
 | xterm.js | Terminal rendering, fit, input, paste, selection, resize, theme and contrast controls | `src/client/TerminalView.tsx`, `terminal-input.ts` | Browser suites under `tests/browser/` |
 | Browser platform | WebSocket, EventSource, Clipboard, page lifecycle, Visual Viewport, Pointer Events, Canvas | `src/client/` | Chromium browser suite plus focused manual mobile check |
-| Voice input | Browser MediaRecorder and OpenAI file transcription | `src/client/use-dictation.ts`, `src/server/transcription.ts` | `src/server/transcription.test.ts`, `src/server/server.test.ts`, voice input cases in `tests/browser/conversation.spec.ts`; [live trial](voice-input.md) |
+| Voice input | Browser MediaRecorder, Web Audio analysis and OpenAI file transcription | `src/client/use-dictation.ts`, `src/client/VoiceWaveform.tsx`, `src/server/transcription.ts` | `src/server/transcription.test.ts`, `src/server/server.test.ts`, voice input cases in `tests/browser/conversation.spec.ts`; [live trial](voice-input.md) |
 | Node.js and SQLite | `node:sqlite` `DatabaseSync`, WAL, foreign keys, filesystem permissions | `src/server/threads.ts`, `clipboard-image.ts` | Unit suite plus opening a copy of production state |
 | Reverse proxy/access layer | WebSocket upgrade, unbuffered SSE, allowed origins, HTTPS clipboard access | `src/server/server.ts`, `config.ts` | Remote browser smoke test through the deployed URL |
 
