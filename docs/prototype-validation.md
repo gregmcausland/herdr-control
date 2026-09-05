@@ -1,8 +1,50 @@
 # Prototype validation
 
-Validated on 19 August 2026 against Herdr 0.8.0, protocol 19.
+This record separates isolated automated tests from live inspection. The older
+terminal checks below remain historical evidence, not a claim that every provider
+interaction was repeated for the latest UI.
 
-## Proven path
+## Conversation and organisation update, 5 September 2026
+
+Validated through implementation commit `fbbd461`:
+
+- Type checking, production builds, and 180 unit tests passed.
+- All 25 isolated browser checks passed in Chromium. They cover saved drafts,
+  lost send acknowledgements, unavailable hosts, terminal recovery, multi-host
+  isolation, and New thread validation and submission.
+- The launch regression uses the real Control server, lifecycle, Herdr adapter,
+  and response parser with a substituted Herdr transport. It reproduces an absent
+  agent kind during startup and verifies one prompt only after explicit readiness.
+  This is not evidence of a new live agent being launched.
+- Project and Thread ordering remained stable through status changes, reordered
+  incoming panes, and reload. Empty Projects remained available in the picker;
+  archived Threads appeared only in Archive.
+- Conversation checks verified changing canvas frames while working and a
+  stationary canvas under reduced motion. The working strip disappeared on
+  completion and disconnection without losing a draft.
+- Phone, desktop, light-theme, 320px-wide, and 390 x 430 keyboard-sized layouts
+  were inspected. Long-history checks covered reading position, visible working
+  feedback, and Jump to latest.
+- Both managed deployments built and restarted successfully, preserving their
+  databases. Playwright opened live index pages, project pickers, archives, and
+  active and archived conversations, including reload. Mutation requests and all
+  terminal WebSockets were blocked during these checks; no live agents were
+  started, stopped, or messaged.
+- Live Codex prompts and completed replies were observed through installed capture
+  hooks. Provider-wide hook activation and physical iPhone/Safari testing remain
+  outstanding; fixture coverage does not establish those results.
+
+Reproduce the isolated suite with `npm run test:browser:mock`. The committed
+deployment check is `npm run test:browser:readonly` with
+`HERDR_CONTROL_READONLY_URL` set to the Home bridge. It checks active and archived
+conversations across configured hosts. Index, picker, archive-navigation, and
+animation inspection on deployed pages was additional read-only Playwright work.
+
+## Terminal baseline, 19 August 2026
+
+Validated against Herdr 0.8.0, protocol 19.
+
+### Proven path
 
 - The independent Vite client connected to a supplied bridge URL over the host's Tailscale address.
 - The production bridge served the same built client and handled same-origin HTTP and WebSocket traffic.
@@ -17,7 +59,7 @@ Validated on 19 August 2026 against Herdr 0.8.0, protocol 19.
 - Light terminal themes remapped dark true-colour Codex and Pi surfaces in the
   browser while dark themes preserved the original ANSI bytes.
 
-## Interaction matrix
+### Interaction matrix
 
 | Surface | Evidence |
 | --- | --- |

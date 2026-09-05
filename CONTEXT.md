@@ -33,7 +33,7 @@ A durable working context for one repository, its Threads, and any related Workt
 _Avoid_: Workspace, repository, pane group
 
 **Project recency**:
-The start time of a Project's latest Run. In active orchestration views, groups with a current Run rank ahead of groups without one, then groups rank by recency.
+The start time of a Project's latest Run. This metadata does not determine home ordering. Home lists non-empty groups by Project name and host, with Threads newest first by their original creation date. Empty Projects remain in the Project picker.
 _Avoid_: Browser interaction, Project update, workspace focus
 
 **Project Runtime**:
@@ -57,7 +57,7 @@ One execution of a Thread using transient Herdr resources. A resumed Thread begi
 _Avoid_: Thread, agent session, conversation
 
 **Working period**:
-A continuous interval within a Run while its agent reports Working. It is the user-facing measure of how long the latest piece of active work took.
+A continuous interval within a Run while its agent reports Working. Active working time appears on home and in the conversation's animated working strip. Idle rows do not display the previous period's duration as though it were time spent idle.
 _Avoid_: Run duration, pane age, session duration
 
 **Retained Run**:

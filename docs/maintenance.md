@@ -9,7 +9,8 @@ Use this document when upgrading Herdr, an agent harness, Node.js, xterm.js, or
 the browser/deployment environment. It records what Control relies on, where the
 adapter lives, likely failure symptoms, and which tests to run.
 
-Last reviewed: 2026-08-22, against Herdr 0.8.0 and Node.js 24.16.0. The project
+Last reviewed: 2026-09-05. Deployments use Herdr 0.8.0, protocols 19-20, and
+Node.js 24.16.0 or 26.8.1. See [validation](prototype-validation.md) for scope. The project
 supports Node.js 22.5 or newer; JavaScript dependency versions remain pinned by
 `package-lock.json`.
 
@@ -98,9 +99,16 @@ acknowledges the prompt command. It does not require terminal ownership.
 Workspace, tab, and Worktree creation must return enough information to resolve
 `workspace_id`, `tab_id`, and `root_pane.pane_id`. A new agent is not considered
 ready merely because `agent.start` returns: Control polls `agent.get` until the
-expected pane, kind, and optional name appear. Herdr 0.8 may omit
-`interactive_ready` and `launch_pending`; explicit `false` readiness or `true`
-pending still prevents prompting.
+expected pane, kind, and optional name appear, with `interactive_ready: true`
+and no pending launch. During startup, `agent` may be absent or null while
+detection catches up. That is a not-ready result, not malformed JSON. Herdr
+omits false readiness flags, so an absent `interactive_ready` must never be
+treated as ready. Unexpected field types still fail validation.
+
+`tests/browser/new-thread-launch.spec.ts` exercises this transition through the
+real HTTP handler, lifecycle, adapter, and parser with only the Herdr transport
+substituted. It verifies that the initial prompt is sent once, after readiness.
+Use a disposable session for any subsequent live launch validation.
 
 The following Herdr error codes currently drive behavior and must remain
 structured rather than inferred from prose:
@@ -190,8 +198,9 @@ new version.
 
 The UI recognizes `working`, `blocked`, `done`, and `idle` as meaningful status
 values. Unknown values remain visible but lose status-specific behavior. In
-particular, working duration, the activity shader, and automatic mark-as-viewed
-depend on stable `working` and `done` semantics.
+particular, working duration and the activity shader depend on `working`.
+Completion does not imply that the user has read a reply; Control does not yet
+track unread messages. Status changes do not change index ordering.
 
 Agent TUIs are rendered rather than semantically parsed, but two presentation
 details still require maintenance:
@@ -231,7 +240,8 @@ The browser must provide:
 - Async Clipboard for the explicit paste shortcut. Ordinary paste events remain
   a fallback, but Clipboard access generally requires HTTPS or localhost and a
   user gesture.
-- `localStorage` for bridge address, settings, and creation defaults. These are
+- `localStorage` for bridge address, settings, creation defaults, conversation
+  drafts, cached replies, and reading positions. These are
   intentionally per-browser and are not part of the server database.
 - History routing (`pushState`, `popstate`, and server-side SPA fallback) so a
   terminal URL can be refreshed without losing its selected Thread or pane.
@@ -290,6 +300,13 @@ environment and `PATH`. A service-manager change must preserve both assumptions
 or configure an absolute binary path and the repository working directory.
 
 ## Upgrade checklist
+
+Run `npm run test:browser:mock` first. It needs no live agents. After updating
+every bridge, use `HERDR_CONTROL_READONLY_URL=https://your-home-bridge npm run
+test:browser:readonly` to read active and archived conversations with all writes
+and terminal connections blocked. Keep the service in a separate managed
+checkout so development builds cannot replace its client assets. The live
+interaction checks below require disposable sessions and permission to control them.
 
 1. Record the proposed Herdr, agent harness, Node.js, browser, and xterm versions.
 2. Back up Control's SQLite state before a Node, schema, or reconciliation

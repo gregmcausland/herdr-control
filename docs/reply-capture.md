@@ -66,7 +66,7 @@ to preserve local drafts. The application itself must already be loaded to read
 cached messages when its serving host is unreachable; there is no offline app shell.
 
 Every Control submission has a stable receipt ID before sending. Repeating the
-same request returns its receipt instead of submitting again. **Sent to agent**
+same request returns its receipt instead of submitting again. **Sent**
 means Herdr acknowledged the prompt. **Failed** permits an explicit retry.
 **Delivery uncertain** means Herdr may have accepted it: inspect the agent before
 editing or sending it again. Control does not automatically replay uncertain

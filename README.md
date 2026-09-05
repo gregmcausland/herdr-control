@@ -25,6 +25,9 @@ still change.
   Worktree, or an existing checkout. Each agent starts in its own Thread.
 - Supply an optional title and initial message when starting an agent.
 - Follow how long an agent has been working.
+- Keep the working animation and elapsed time in view above the conversation
+  composer, including while reading earlier replies. Reduced-motion preferences
+  replace the animation with a still frame.
 - Open and control shells and full-screen agent interfaces without interrupting
   their underlying processes.
 - Type, paste text or clipboard images, send modified keys, resize, scroll, and
@@ -49,6 +52,11 @@ Home shows projects with open agents or shells, ordered by project name and host
 Threads within each project appear newest first by their original creation date;
 status changes and restored runs do not change that order. Empty projects remain
 available through All projects and New thread.
+
+Conversations open by default. The header's terminal button opens xterm.js;
+the **Thread actions** menu contains Archive, Stop agent, and available resume
+actions. See the [walkthrough](docs/getting-started.md#4-read-and-interact) for
+the phone layout and message controls.
 
 Each bridge checks its own executable `PATH` and reports which Control-supported
 agents it can launch. New-thread controls use the inventory from the Project's
@@ -177,7 +185,7 @@ herdr integration install pi
 
 Restoration is offered only after Herdr reports a supported provider session
 reference. Archiving removes a thread from the active view and leaves its process
-running. Use **Stop agent** in the conversation to request process retirement.
+running. Use **Thread actions → Stop agent** in the conversation to request process retirement.
 If Herdr must preserve its worktree, Control reports that the process remains alive.
 
 The Archive screen lists Threads by archive date and retains captured messages
@@ -233,8 +241,10 @@ npm run build
 npm run test:browser:mock
 ```
 
-The mock browser suite needs Playwright Chromium (`npx playwright install chromium`)
-and starts its own client. It does not connect to real agents.
+The mock browser suite needs Playwright Chromium (`npx playwright install chromium`).
+It builds the client and starts isolated browser fixtures. Its launch regression
+test runs the real Control HTTP handler and Herdr adapter with a substituted Herdr
+transport. No real agents are launched or messaged.
 
 After installing an update on **every** configured host, inspect the deployed app
 without sending messages or attaching terminals:

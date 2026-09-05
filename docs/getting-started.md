@@ -32,14 +32,49 @@ Tailscale authentication credentials remain with Tailscale.
 
 ## 3. Create the first Thread
 
-Open a repository-backed workspace in Herdr. Return to Control and wait for its
-Project to appear. Choose the plus button beside the Project, select an agent and
-location, optionally add a title and initial message, then create the Thread.
+Open a repository-backed workspace in Herdr. In Control, choose **New thread**
+in the header or **All projects** below the active list, then select the Project.
+Empty Projects remain in this picker even though they do not occupy a section
+on home. Projects with open panes also have a plus button beside their heading.
+
+Choose an available agent and write an optional initial task. Expand **Options**
+to change the agent, title, checkout, or permissions. Select **Start Thread**.
+Control waits for Herdr to detect the agent and explicitly report it ready
+before sending the initial task. During launch, the form prevents duplicate
+submissions. A launch error keeps the form and draft available.
 
 The agent continues under Herdr if the browser closes. Reopen its row to read
 completed replies and write messages. Install [reply capture](reply-capture.md)
-on its host first. **Open terminal** provides the full agent interface when needed.
-Archiving hides a Thread without stopping its process; **Stop agent** is separate.
+on its host first.
+
+## 4. Read and interact
+
+The conversation page shows captured prompts and completed replies. Prompts
+can originate in Control or the agent's desktop session; supported capture hooks
+observe both. New replies arrive after the response finishes, without opening
+or taking control of the terminal.
+
+<img src="images/conversation-mobile.png" width="300" alt="Phone conversation with separate user and agent messages, an animated working strip, and a native message composer. Screenshot uses fixture data.">
+
+- The working strip above the composer uses the same animation as the project
+  list, with elapsed time when Herdr supplies a working start time. It stays
+  visible while you read older messages and disappears when work ends or the
+  host disconnects. Reduced-motion mode keeps it still.
+- Type a message and choose **Send**, or use Ctrl/Cmd+Enter. Enter alone inserts
+  a newline. Drafts are saved on this device across navigation and reload.
+  **Sent** means Herdr accepted the prompt, not that the agent finished the task.
+- Scroll up to read earlier replies. **Jump to latest** returns to the bottom;
+  keyboard resizing preserves your position when reading history.
+- The header's **Open terminal** button provides the full agent interface for
+  interactive questions and tool output.
+- Open **Thread actions** with the three-dot button for Archive, Stop agent,
+  and resume actions when available. Archiving hides a Thread without stopping
+  its process. Stopping requires confirmation.
+
+Home keeps Projects in alphabetical order, then host order. Threads within each
+Project use their original creation date, newest first. Status changes and
+restored Runs do not move existing rows. **View archive** opens retained history,
+newest archive date first; history does not expire automatically.
 
 ## Useful service commands
 
