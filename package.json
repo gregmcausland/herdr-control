@@ -14,7 +14,7 @@
     "test": "vitest run src scripts",
     "test:browser": "playwright test",
     "test:browser:readonly": "playwright test tests/browser/live-readonly.spec.ts",
-    "test:browser:mock": "npm run build:client && HERDR_CONTROL_TEST_MOCK=1 playwright test tests/browser/conversation.spec.ts tests/browser/mobile-input.spec.ts tests/browser/multi-host.spec.ts tests/browser/theme.spec.ts tests/browser/new-thread.spec.ts tests/browser/new-thread-launch.spec.ts",
+    "test:browser:mock": "npm run build:client && HERDR_CONTROL_TEST_MOCK=1 playwright test tests/browser/conversation.spec.ts tests/browser/conversation-echo.spec.ts tests/browser/mobile-input.spec.ts tests/browser/multi-host.spec.ts tests/browser/theme.spec.ts tests/browser/new-thread.spec.ts tests/browser/new-thread-launch.spec.ts",
     "control": "node scripts/herdr-control.mjs",
     "release:bundle": "node scripts/build-release.mjs",
     "validate:host-migration": "npm run build:server && node scripts/validate-host-migration.mjs",

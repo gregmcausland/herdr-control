@@ -71,7 +71,9 @@ means Herdr acknowledged the prompt. **Failed** permits an explicit retry.
 **Delivery uncertain** means Herdr may have accepted it: inspect the agent before
 editing or sending it again. Control does not automatically replay uncertain
 messages, including after a bridge restart. Captured desktop prompts are merged
-with matching recent Control messages where possible.
+with matching recent Control messages where possible. Echo matching tolerates
+outer whitespace and CRLF/LF differences, preserves internal whitespace, and
+claims each Control receipt only once so repeated desktop prompts remain distinct.
 
 ## Check an installation
 

@@ -112,8 +112,10 @@ test("reads replies and preserves drafts across navigation, reload and terminal 
   await page.getByRole("button", { name: "Home", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveValue("Please explain the change\non my phone");
   await page.setViewportSize({ width: 390, height: 430 });
-  const send = await page.getByRole("button", { name: "Send", exact: true }).boundingBox();
-  expect(send!.y + send!.height).toBeLessThanOrEqual(430);
+  await expect.poll(async () => {
+    const send = await page.getByRole("button", { name: "Send", exact: true }).boundingBox();
+    return send!.y + send!.height;
+  }).toBeLessThanOrEqual(430);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await page.screenshot({ path: "/tmp/herdr-control-conversation-mobile.png" });
   await context.close();

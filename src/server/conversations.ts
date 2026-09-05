@@ -73,11 +73,12 @@ export class ConversationStore {
     // Match the provider's echo to exactly one recent Control submission. Repeated
     // identical desktop prompts remain separate after that receipt is claimed.
     if (event.role === "user") {
-      const sent = this.database.prepare(`SELECT message_id FROM conversation_messages
-        WHERE thread_id = ? AND source = 'control' AND text = ? AND event_id IS NULL
+      const candidates = this.database.prepare(`SELECT message_id, text FROM conversation_messages
+        WHERE thread_id = ? AND source = 'control' AND event_id IS NULL
         AND delivery IN ('sending', 'acknowledged', 'uncertain')
         AND ABS(julianday(created_at) - julianday(?)) * 86400 < 60
-        ORDER BY sequence LIMIT 1`).get(threadId, event.text, event.created_at) as { message_id: string } | undefined;
+        ORDER BY sequence`).all(threadId, event.created_at) as Array<{ message_id: string; text: string }>;
+      const sent = candidates.find((candidate) => promptIdentity(candidate.text) === promptIdentity(event.text));
       if (sent) {
         this.database.prepare("UPDATE conversation_messages SET event_id = ? WHERE message_id = ?")
           .run(event.event_id, sent.message_id);
@@ -95,6 +96,12 @@ export class ConversationStore {
   }
 
   close() { this.database.close(); }
+}
+
+// Providers may trim a submitted prompt or normalise its line endings. Preserve
+// stored text and meaningful internal whitespace; only echo comparison changes.
+function promptIdentity(text: string): string {
+  return text.replace(/\r\n/g, "\n").trim();
 }
 
 function message(row: Row): ConversationMessage {

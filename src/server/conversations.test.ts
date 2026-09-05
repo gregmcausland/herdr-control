@@ -77,4 +77,18 @@ describe("durable conversation delivery", () => {
     expect(capturedThread({ ...event, pane_id: "w9:p7" }, [thread])).toBe(thread);
     expect(capturedThread({ ...event, session_id: "replacement" }, [thread])).toBeUndefined();
   });
+
+  it.each([
+    ["Continue ", "Continue", 1],
+    ["\nContinue\r\nwith this\t\n", "Continue\nwith this", 1],
+    ["Keep  two spaces", "Keep two spaces", 2],
+  ])("matches provider whitespace changes without discarding internal whitespace: %j", (sent, captured, count) => {
+    const store = new ConversationStore(":memory:");
+    store.begin("thread-1", "message-1", sent);
+    store.captured("thread-1", { ...event, role: "user", text: captured });
+    store.captured("thread-1", { ...event, role: "user", text: captured });
+    expect(store.list("thread-1").messages).toHaveLength(count);
+    expect(store.get("message-1")?.text).toBe(sent);
+    store.close();
+  });
 });
