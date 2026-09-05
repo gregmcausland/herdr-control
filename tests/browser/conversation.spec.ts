@@ -244,15 +244,17 @@ test.describe("voice input", () => {
     });
     await open(page);
     const draft = page.getByRole("textbox", { name: "Message", exact: true });
-    await expect(page.getByRole("button", { name: "Dictate message" })).toContainText("Tap to speak");
+    await expect(page.getByRole("button", { name: "Dictate message" })).toContainText("Speak a message");
     await expect(page.getByRole("button", { name: "Send", exact: true })).toBeHidden();
-    expect((await page.getByRole("button", { name: "Dictate message" }).boundingBox())!.width).toBeGreaterThan(280);
+    expect((await page.getByRole("button", { name: "Dictate message" }).boundingBox())!.width).toBeGreaterThan(240);
     await page.screenshot({ path: testInfo.outputPath("dictation-ready-phone.png") });
+    await page.getByRole("button", { name: "Type a message", exact: true }).click();
+    await expect(draft).toBeFocused();
     await draft.fill("Please");
     await page.getByRole("button", { name: "Dictate message" }).click();
     await expect(page.getByRole("status")).toContainText("Recording");
-    await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
-    await expect(page.getByRole("status")).toContainText("1s / 120s");
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toHaveCount(0);
+    await expect(page.locator(".voice-duration")).toHaveAttribute("aria-label", "1s / 120s");
     await expect(page.getByRole("img", { name: "Live microphone waveform" })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("dictation-recording-phone.png") });
     const upload = page.waitForRequest(request => request.url().endsWith("/api/transcription") && request.method() === "POST");
@@ -263,7 +265,7 @@ test.describe("voice input", () => {
     await draft.fill("Please also");
     for (const viewport of [{ width: 1440, height: 1000 }, { width: 320, height: 430 }]) {
       await page.setViewportSize(viewport);
-      await expect(page.getByRole("button", { name: "Send", exact: true })).toBeInViewport();
+      await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeInViewport();
       expect(await page.locator(".conversation-composer").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
       expect(await page.locator(".conversation-input").evaluate(el => {
         const bounds = el.getBoundingClientRect();
@@ -276,11 +278,24 @@ test.describe("voice input", () => {
     }
     finish();
     await expect(draft).toHaveValue("Please also Review the Herdr changes.");
+    await page.screenshot({ path: testInfo.outputPath("dictation-draft-keyboard.png") });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: testInfo.outputPath("dictation-draft-phone.png") });
     await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
     expect(state.submissions).toHaveLength(0);
     expect(await page.evaluate(() => (window as any).voiceStream.getTracks().every((track: MediaStreamTrack) => track.readyState === "ended"))).toBe(true);
     await page.reload();
     await expect(draft).toHaveValue("Please also Review the Herdr changes.");
+    await page.evaluate(() => localStorage.setItem("herdr-control-settings", JSON.stringify({ theme: "catppuccinLatte" })));
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+    await page.screenshot({ animations: "disabled", path: testInfo.outputPath("dictation-draft-light.png") });
+    await draft.fill("");
+    await page.screenshot({ animations: "disabled", path: testInfo.outputPath("dictation-ready-light.png") });
+    await page.getByRole("button", { name: "Dictate message" }).click();
+    await expect(page.getByRole("img", { name: "Live microphone waveform" })).toBeVisible();
+    await page.screenshot({ animations: "disabled", path: testInfo.outputPath("dictation-recording-light.png") });
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
   });
 
   test("waveform responds to microphone audio and silence, then releases its audio context", async ({ page }, testInfo) => {
@@ -319,7 +334,7 @@ test.describe("voice input", () => {
     const silence = await snapshot();
     await page.evaluate(() => { (window as any).voiceGain.gain.value = 0.15; });
     await expect.poll(snapshot).not.toBe(silence);
-    await expect(page.getByRole("status")).toContainText("2s / 120s");
+    await expect(page.locator(".voice-duration")).toHaveAttribute("aria-label", "2s / 120s");
     await page.screenshot({ path: testInfo.outputPath("waveform-speaking-phone.png") });
     await page.setViewportSize({ width: 320, height: 430 });
     await expect(page.getByRole("button", { name: "Stop recording" })).toBeInViewport();
@@ -356,7 +371,7 @@ test.describe("voice input", () => {
     expect(uploads).toBe(0);
     expect(await page.evaluate(() => (window as any).voiceStream.getTracks().every((track: MediaStreamTrack) => track.readyState === "ended"))).toBe(true);
     await page.getByRole("button", { name: "Dictate message" }).click();
-    await expect(page.getByRole("status")).toContainText("1s / 120s");
+    await expect(page.locator(".voice-duration")).toHaveAttribute("aria-label", "1s / 120s");
     await page.getByRole("button", { name: "Stop recording" }).click();
     await expect.poll(() => uploads).toBe(1);
     await page.getByRole("button", { name: "Home", exact: true }).click();
@@ -366,7 +381,71 @@ test.describe("voice input", () => {
     expect(state.submissions).toHaveLength(0);
   });
 
-  test("permission denial preserves the draft and missing configuration hides the mic", async ({ page }) => {
+  test("permission wait can be cancelled and transcription errors leave a usable composer", async ({ page }, testInfo) => {
+    test.skip(!client, "Browser client required");
+    await page.setViewportSize({ width: 390, height: 844 });
+    const state = await fixture(page);
+    await page.route("**/api/transcription", route => route.request().method() === "GET"
+      ? route.fulfill({ json: { available: true } })
+      : route.fulfill({ status: 503, json: { error: "Transcription is unavailable. Please try again." } }));
+    await page.addInitScript(() => {
+      const getUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async constraints => {
+        await new Promise<void>(resolve => { (window as any).allowMicrophone = resolve; });
+        const stream = await getUserMedia(constraints);
+        (window as any).voiceStream = stream;
+        return stream;
+      };
+    });
+    await open(page);
+    const composer = page.locator(".conversation-composer");
+    await page.getByRole("button", { name: "Dictate message" }).click();
+    await expect(page.getByRole("status")).toHaveText("Waiting for microphone…");
+    await composer.screenshot({ path: testInfo.outputPath("voice-permission-wait.png") });
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.evaluate(() => (window as any).allowMicrophone());
+    await expect.poll(() => page.evaluate(() => (window as any).voiceStream?.getTracks().every((track: MediaStreamTrack) => track.readyState === "ended"))).toBe(true);
+    await expect(page.getByRole("button", { name: "Type a message", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Dictate message" }).click();
+    await page.evaluate(() => (window as any).allowMicrophone());
+    await expect(page.locator(".voice-duration")).toHaveAttribute("aria-label", "1s / 120s");
+    await page.getByRole("button", { name: "Stop recording" }).click();
+    await expect(page.getByRole("status")).toContainText("Transcription is unavailable");
+    await composer.screenshot({ path: testInfo.outputPath("voice-transcription-error.png") });
+    await page.getByRole("button", { name: "Type a message", exact: true }).click();
+    const draft = page.getByRole("textbox", { name: "Message", exact: true });
+    await expect(draft).toBeFocused();
+    await draft.fill("Please review the microphone controls.");
+    await state.status("working");
+    await page.getByRole("button", { name: "Dictate message" }).click();
+    await page.evaluate(() => (window as any).allowMicrophone());
+    await expect(page.getByRole("img", { name: "Live microphone waveform" })).toBeVisible();
+    await page.setViewportSize({ width: 320, height: 430 });
+    await expect(page.getByRole("button", { name: "Stop recording" })).toBeInViewport();
+    await expect(draft).toBeInViewport();
+    expect(await page.locator(".conversation-reader").evaluate(el => el.clientHeight)).toBeGreaterThan(60);
+    await composer.screenshot({ path: testInfo.outputPath("voice-working-small.png") });
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await state.status("idle", "stale");
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+    await composer.screenshot({ path: testInfo.outputPath("voice-disconnected.png") });
+    await state.status("idle");
+    let finish!: () => void;
+    const gate = new Promise<void>(resolve => { finish = resolve; });
+    await page.route("**/api/threads/thread-1/messages", async route => { await gate; await route.fulfill({ status: 503, json: { error: "Agent is unavailable. Your draft is safe." } }); });
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Sending…", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Dictate message" })).toBeDisabled();
+    await composer.screenshot({ path: testInfo.outputPath("voice-sending.png") });
+    finish();
+    await expect(page.getByRole("status")).toContainText("Delivery is being checked");
+    await expect(draft).toHaveValue("Please review the microphone controls.");
+    await composer.screenshot({ path: testInfo.outputPath("voice-send-error.png") });
+    expect(state.submissions).toHaveLength(0);
+  });
+
+  test("permission denial preserves the draft and missing configuration hides the mic", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
     test.skip(!client, "Browser client required");
     const state = await fixture(page);
     let available = true;
@@ -376,15 +455,18 @@ test.describe("voice input", () => {
     });
     await open(page);
     const draft = page.getByRole("textbox", { name: "Message", exact: true });
+    await page.getByRole("button", { name: "Type a message", exact: true }).click();
     await draft.fill("Keep this");
     await page.getByRole("button", { name: "Dictate message" }).click();
     await expect(page.getByRole("status")).toContainText("Microphone access was denied");
     await expect(draft).toHaveValue("Keep this");
     await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
     expect(state.submissions).toHaveLength(0);
+    await page.screenshot({ path: testInfo.outputPath("dictation-permission-error.png") });
     available = false;
     await page.reload();
     await expect(draft).toHaveValue("Keep this");
     await expect(page.getByRole("button", { name: "Dictate message" })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("dictation-unavailable.png") });
   });
 });

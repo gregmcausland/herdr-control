@@ -1,13 +1,15 @@
 # Voice input spike
 
 The conversation composer can record a short message and transcribe it through
-OpenAI. Tap the microphone, speak, then tap Stop. The transcript appends to the
+OpenAI. Tap the microphone, speak, then tap Finish. The transcript appends to the
 current draft, including edits made while waiting. Review it before pressing Send.
 
-On phones, an empty draft leads with a full-width "Tap to speak" button. Typing
-remains available above it. After transcription, Send becomes the main action
-and "Add voice" appends another recording. While recording, Finish stops and
-transcribes the audio; Cancel discards it.
+On phones, an empty composer leads with "Speak a message" beside a keyboard
+button that opens and focuses the text input. After transcription, Send becomes
+the main action and "Add voice" appends another recording. While recording,
+Finish stops and transcribes the audio; Cancel discards it. Permission waits and
+transcription show a progress indicator and Cancel. The input grows with the
+draft, and short screens use a compact waveform and working indicator.
 
 The live waveform shows recent microphone levels through Web Audio's
 `AnalyserNode`. It reuses the recording stream without playing it back or making
