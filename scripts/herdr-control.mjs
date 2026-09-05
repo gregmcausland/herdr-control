@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { installReplyCapture } from "./integrations/install.mjs";
 
 import {
   chmodSync,
@@ -30,6 +31,11 @@ if (resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
 
 async function main(command) {
   switch (command) {
+    case "capture-install":
+      console.log(installReplyCapture());
+      console.log("Reply capture installed. Start fresh Codex/Claude sessions or reload Pi extensions to activate it.");
+      console.log("In Codex, open /hooks and review/trust the new capture hooks before using them.");
+      break;
     case "install":
       await install();
       break;
@@ -248,6 +254,7 @@ function usage() {
 
 Commands:
   install   Build and install the user service
+  capture-install  Install completed-reply hooks for Codex, Claude, and Pi
   status    Show service status
   logs      Follow service logs
   start     Start the service

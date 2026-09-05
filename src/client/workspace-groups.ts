@@ -26,12 +26,10 @@ export function groupPanesByProject(
     target.set(key, groupedPanes);
   }
 
-  const projectGroups: ProjectPaneGroup[] = projects.flatMap((project) => {
-    const projectPanes = panesByProject.get(project.project_id);
-    return projectPanes?.length
-      ? [{ id: project.project_id, label: project.name, project, panes: projectPanes }]
-      : [];
-  });
+  const projectGroups: ProjectPaneGroup[] = projects.map((project) => ({
+    id: project.project_id, label: project.name, project,
+    panes: panesByProject.get(project.project_id) ?? [],
+  }));
   const groups = [
     ...projectGroups,
     ...workspaces.flatMap((workspace) => {

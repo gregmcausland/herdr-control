@@ -304,10 +304,16 @@ or configure an absolute binary path and the repository working directory.
 7. Confirm session references appear after the first provider interaction, then
    archive and restore Codex, Claude, and Pi Threads where supported.
 8. Close a pane directly in Herdr and confirm its Run ends and its Thread archives
-   in Control. Confirm a protected Worktree anchor stays hidden until Herdr can
-   safely retire it.
+   in Control, even without a resume reference. Archive a running Thread and verify
+   its process continues. Stop it explicitly and check that a protected Worktree
+   reports retention instead of claiming the process stopped.
 9. Disconnect and restart the bridge, then Herdr, confirming stale state is
    clearly shown and the next complete snapshot converges without duplicates.
 10. Smoke-test the deployed HTTPS URL for SSE, WebSocket, clipboard, background
     release, and focus reclaim. Update this document and prototype validation
     with the versions and any changed assumptions.
+
+Reply capture is another provider seam: see [capture setup and contracts](reply-capture.md).
+Run `npm run test:browser:mock` for conversations, drafts, receipt recovery, and
+terminal drill-down before live validation. The hook fixtures validate import and
+deduplication; they do not substitute for exercising each installed agent version.

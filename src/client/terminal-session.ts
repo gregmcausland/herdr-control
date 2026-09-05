@@ -49,6 +49,8 @@ interface Attempt {
   phase: "connecting" | "connected" | "releasing";
   acquisitionTimer?: ReturnType<typeof setTimeout>;
   releaseTimer?: ReturnType<typeof setTimeout>;
+  heartbeatTimer?: ReturnType<typeof setInterval>;
+  healthTimer?: ReturnType<typeof setTimeout>;
 }
 
 export interface TerminalSession {
@@ -94,8 +96,12 @@ export function createTerminalSession(
   const clearAttemptTimers = (current: Attempt) => {
     if (current.acquisitionTimer !== undefined) clearTimeout(current.acquisitionTimer);
     if (current.releaseTimer !== undefined) clearTimeout(current.releaseTimer);
+    if (current.heartbeatTimer !== undefined) clearInterval(current.heartbeatTimer);
+    if (current.healthTimer !== undefined) clearTimeout(current.healthTimer);
     current.acquisitionTimer = undefined;
     current.releaseTimer = undefined;
+    current.heartbeatTimer = undefined;
+    current.healthTimer = undefined;
   };
 
   const closeAttempt = (current: Attempt) => {
@@ -193,6 +199,15 @@ export function createTerminalSession(
         if (current.acquisitionTimer !== undefined) clearTimeout(current.acquisitionTimer);
         current.acquisitionTimer = undefined;
         current.phase = "connected";
+        current.heartbeatTimer = setInterval(() => {
+          if (attempt !== current || current.phase !== "connected" || current.healthTimer !== undefined) return;
+          current.socket.send(JSON.stringify({ type: "ping" }));
+          current.healthTimer = setTimeout(() => {
+            if (attempt !== current || current.phase !== "connected") return;
+            closeAttempt(current);
+            retryAfterClose();
+          }, 5_000);
+        }, 10_000);
         reconnectAttempt = 0;
         occupiedAttempt = 0;
         publish({
@@ -200,6 +215,9 @@ export function createTerminalSession(
           mode: current.mode,
           message: current.mode === "control" ? "Control" : "Observing",
         });
+      } else if (incoming.type === "pong") {
+        if (current.healthTimer !== undefined) clearTimeout(current.healthTimer);
+        current.healthTimer = undefined;
       } else if (incoming.type === "frame") {
         if (current.phase === "connected") options.onFrame(incoming);
       } else if (incoming.type === "released") {
@@ -258,6 +276,7 @@ export function createTerminalSession(
       return;
     }
 
+    clearAttemptTimers(current);
     current.phase = "releasing";
     publish({ phase: "releasing", mode: current.mode, message: "Releasing control…" });
     current.socket.send(JSON.stringify({ type: "release" }));
@@ -307,7 +326,7 @@ export function createTerminalSession(
         !current ||
         current.phase !== "connected" ||
         current.socket.readyState !== SOCKET_OPEN ||
-        (message.type !== "view" && current.mode !== "control")
+        (message.type !== "view" && message.type !== "ping" && current.mode !== "control")
       ) return false;
       current.socket.send(JSON.stringify(message));
       return true;

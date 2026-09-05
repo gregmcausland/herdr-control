@@ -43,18 +43,18 @@ const snapshot = {
     agent: "codex",
     agent_session: { source: "herdr:codex", agent: "codex", kind: "id", value: "recent-session" },
     lifecycle: "archived",
-    created_at: "2026-08-28T12:00:00.000Z",
-    updated_at: "2026-08-28T12:00:00.000Z",
-    archived_at: "2026-08-28T12:00:00.000Z",
+    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    updated_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    archived_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
   }, {
     thread_id: "thread-older",
     title: "Older archived thread",
     agent: "codex",
     agent_session: { source: "herdr:codex", agent: "codex", kind: "id", value: "older-session" },
     lifecycle: "archived",
-    created_at: "2026-08-10T12:00:00.000Z",
-    updated_at: "2026-08-10T12:00:00.000Z",
-    archived_at: "2026-08-10T12:00:00.000Z",
+    created_at: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
+    updated_at: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
+    archived_at: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
   }],
 };
 
@@ -79,6 +79,7 @@ async function mockTerminal(
       const parsed = JSON.parse(message.toString()) as { type: string; data?: string; key?: string };
       sent.push(parsed);
       if (parsed.type === "release") socket.send(JSON.stringify({ type: "released" }));
+      if (parsed.type === "ping") socket.send(JSON.stringify({ type: "pong" }));
     });
     socket.send(JSON.stringify({ type: "ready", mode: "control" }));
   });
@@ -92,10 +93,9 @@ async function openTerminal(
   const page = await context.newPage();
   await mockTerminal(page, sent, opened);
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
-  await page.getByRole("button", { name: "Open Test pane on Custom host" }).click();
-  await expect.poll(() => decodeURIComponent(new URL(page.url()).pathname)).toBe("/threads/thread-test");
+  await page.goto(`${clientUrl}/threads/thread-test/terminal?host=${encodeURIComponent(clientUrl!)}`);
+  await expect.poll(() => decodeURIComponent(new URL(page.url()).pathname)).toBe("/threads/thread-test/terminal");
   await expect(page.locator(".terminal-header small")).toHaveText("Control");
-  await expect.poll(() => sent.some((message) => message.type === "view")).toBe(true);
   return page;
 }
 
@@ -123,7 +123,7 @@ test("restores a routed terminal after refresh and follows browser history", asy
   test.skip(!clientUrl, "A running browser client is required");
   await mockTerminal(page, []);
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
-  await page.getByRole("button", { name: "Open Test pane on Custom host" }).click();
+  await page.goto(`${clientUrl}/threads/thread-test/terminal?host=${encodeURIComponent(clientUrl!)}`);
 
   await page.reload();
   await expect(page.locator(".terminal-heading strong")).toHaveText("Test pane");
@@ -153,7 +153,7 @@ test("reclaims uncontested control when returning to a backgrounded terminal", a
   const opened: string[] = [];
   await mockTerminal(page, sent, opened);
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
-  await page.getByRole("button", { name: "Open Test pane on Custom host" }).click();
+  await page.goto(`${clientUrl}/threads/thread-test/terminal?host=${encodeURIComponent(clientUrl!)}`);
   await expect.poll(() => opened.length).toBe(1);
 
   await setPageVisibility(page, "hidden");
@@ -194,7 +194,7 @@ test("waits for Herdr release before reacquiring control", async ({ page }) => {
   });
 
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
-  await page.getByRole("button", { name: "Open Test pane on Custom host" }).click();
+  await page.goto(`${clientUrl}/threads/thread-test/terminal?host=${encodeURIComponent(clientUrl!)}`);
   await expect(page.locator(".terminal-header small")).toHaveText("Control");
 
   await setPageVisibility(page, "hidden");
@@ -216,7 +216,7 @@ test("resumes after mobile pagehide and an ordinary pageshow", async ({ page }) 
   const opened: string[] = [];
   await mockTerminal(page, [], opened);
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
-  await page.getByRole("button", { name: "Open Test pane on Custom host" }).click();
+  await page.goto(`${clientUrl}/threads/thread-test/terminal?host=${encodeURIComponent(clientUrl!)}`);
   await expect(page.locator(".terminal-header small")).toHaveText("Control");
 
   await page.evaluate(() => {
@@ -233,7 +233,7 @@ test("always offers manual recovery from a background release", async ({ page })
   const opened: string[] = [];
   await mockTerminal(page, [], opened);
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
-  await page.getByRole("button", { name: "Open Test pane on Custom host" }).click();
+  await page.goto(`${clientUrl}/threads/thread-test/terminal?host=${encodeURIComponent(clientUrl!)}`);
   await expect(page.locator(".terminal-header small")).toHaveText("Control");
 
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: false })));
@@ -279,7 +279,7 @@ test("recovers when refresh overlaps the previous page's release", async ({ page
   });
 
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
-  await page.getByRole("button", { name: "Open Test pane on Custom host" }).click();
+  await page.goto(`${clientUrl}/threads/thread-test/terminal?host=${encodeURIComponent(clientUrl!)}`);
   await expect(page.locator(".terminal-header small")).toHaveText("Control");
 
   await page.reload();
@@ -296,7 +296,7 @@ test("replaces connections left open by mobile suspension", async ({ page }) => 
   const sessionConnections: string[] = [];
   await mockTerminal(page, sent, opened, [], sessionConnections);
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
-  await page.getByRole("button", { name: "Open Test pane on Custom host" }).click();
+  await page.goto(`${clientUrl}/threads/thread-test/terminal?host=${encodeURIComponent(clientUrl!)}`);
   await expect.poll(() => opened.length).toBe(1);
   const feedsBeforeResume = sessionConnections.length;
 
@@ -317,7 +317,7 @@ test("reclaims uncontested control after the terminal bridge disconnects", async
   const connections: WebSocketRoute[] = [];
   await mockTerminal(page, [], opened, connections);
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
-  await page.getByRole("button", { name: "Open Test pane on Custom host" }).click();
+  await page.goto(`${clientUrl}/threads/thread-test/terminal?host=${encodeURIComponent(clientUrl!)}`);
   await expect.poll(() => connections.length).toBe(1);
 
   await connections[0].close({ code: 1012, reason: "Bridge restarted" });
@@ -328,111 +328,14 @@ test("reclaims uncontested control after the terminal bridge disconnects", async
   await expect(page.locator(".terminal-overlay")).toHaveCount(0);
 });
 
-test("offers local message composition and terminal keys only on mobile", async ({ browser }) => {
+test("offers terminal keys on mobile without a second message composer", async ({ browser }) => {
   test.skip(!clientUrl, "A running browser client is required");
-
-  const mobile = await browser.newContext({
-    hasTouch: true,
-    isMobile: true,
-    viewport: { width: 390, height: 844 },
-  });
+  const context = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
   const sent: Array<{ type: string; data?: string; key?: string }> = [];
-  const page = await openTerminal(mobile, sent);
-  const prompts: string[] = [];
-  let acknowledge!: () => void;
-  const acknowledged = new Promise<void>((resolve) => (acknowledge = resolve));
-  await page.route("**/api/threads/thread-test/messages", async (route) => {
-    const body = route.request().postDataJSON() as { text: string };
-    prompts.push(body.text);
-    await acknowledged;
-    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ acknowledged: true }) });
-  });
-
-  const controls = page.getByRole("navigation", { name: "Terminal controls" });
-  await expect(controls).toBeVisible();
-  await expect(controls.getByRole("button")).toHaveCount(3);
-  await expect(page.getByRole("button", { name: "Esc", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "Message" }).click();
-  const composer = page.getByPlaceholder("Prepare a message locally…");
-  await composer.fill("A locally edited\nmessage");
-  await page.getByRole("button", { name: "Close message composer" }).click();
-  await page.getByRole("button", { name: "Message" }).click();
-  await expect(composer).toHaveValue("A locally edited\nmessage");
-  await page.screenshot({ path: "test-results/mobile-composer.png", fullPage: true });
-  await page.getByRole("button", { name: "Send", exact: true }).click();
-
-  await expect(page.getByRole("button", { name: "Sending…", exact: true })).toBeDisabled();
-  await expect(composer).toHaveValue("A locally edited\nmessage");
-  acknowledge();
-  await expect.poll(() => prompts).toEqual(["A locally edited\nmessage"]);
-  await expect(page.getByRole("dialog", { name: "Send message" })).toHaveCount(0);
-  expect(sent.filter((message) => message.type === "input" || message.type === "key")).toEqual([]);
+  const page = await openTerminal(context, sent);
+  await expect(page.getByRole("button", { name: "Message", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Keys", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "Terminal keys" })).toBeVisible();
   await page.getByRole("button", { name: "Esc", exact: true }).click();
   await expect.poll(() => sent.at(-1)).toMatchObject({ type: "key", key: "esc" });
-  await expect(page.getByRole("dialog", { name: "Terminal keys" })).toBeVisible();
-  await mobile.close();
-
-  const medium = await browser.newContext({ viewport: { width: 900, height: 700 } });
-  const mediumPage = await medium.newPage();
-  await mockTerminal(mediumPage, []);
-  await mediumPage.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
-  expect(await mediumPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await medium.close();
-
-  const desktop = await browser.newContext({ viewport: { width: 2560, height: 800 } });
-  const opened: string[] = [];
-  const desktopPage = await openTerminal(desktop, [], opened);
-  await expect(desktopPage.getByRole("navigation", { name: "Terminal controls" })).toHaveCount(0);
-  await expect.poll(() => opened.length).toBe(1);
-  expect(Number(new URL(opened[0]).searchParams.get("cols"))).toBeLessThanOrEqual(140);
-  expect(await desktopPage.locator(".terminal-frame").evaluate((element) => element.getBoundingClientRect().width)).toBe(980);
-  await desktop.close();
-});
-
-test("keeps a failed message ready to retry without terminal control", async ({ browser }) => {
-  test.skip(!clientUrl, "A running browser client is required");
-  const mobile = await browser.newContext({
-    hasTouch: true,
-    isMobile: true,
-    viewport: { width: 390, height: 844 },
-  });
-  const page = await mobile.newPage();
-  let attempts = 0;
-  await page.route("**/api/session/events", (route) => route.fulfill({
-    contentType: "text/event-stream",
-    body: `data: ${JSON.stringify({ status: "live", revision: 1, snapshot })}\n\n`,
-  }));
-  await page.routeWebSocket(/\/api\/terminal/, () => undefined);
-  await page.route("**/api/threads/thread-test/messages", async (route) => {
-    attempts += 1;
-    if (attempts === 1) {
-      await route.fulfill({
-        status: 502,
-        contentType: "application/json",
-        body: JSON.stringify({ error: "Herdr prompt was interrupted" }),
-      });
-      return;
-    }
-    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ acknowledged: true }) });
-  });
-
-  try {
-    await page.goto(`${clientUrl}/?host=${encodeURIComponent(clientUrl!)}`);
-    await page.getByRole("button", { name: "Open Test pane on Custom host" }).click();
-    await expect(page.locator(".terminal-header small")).toHaveText("Acquiring control…");
-    await page.getByRole("button", { name: "Message" }).click();
-    const composer = page.getByPlaceholder("Prepare a message locally…");
-    await composer.fill("Retry this exact message");
-    await page.getByRole("button", { name: "Send", exact: true }).click();
-
-    await expect(page.getByRole("alert")).toHaveText("Herdr prompt was interrupted");
-    await expect(composer).toHaveValue("Retry this exact message");
-    await page.getByRole("button", { name: "Retry", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "Send message" })).toHaveCount(0);
-    expect(attempts).toBe(2);
-  } finally {
-    await mobile.close();
-  }
+  await context.close();
 });

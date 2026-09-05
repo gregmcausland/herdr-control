@@ -1,4 +1,3 @@
-import { ARCHIVE_RETENTION_DAYS } from "../shared/archive-policy";
 import type { HostedArchivedThread } from "./hosted-projects";
 import { TaskSurface } from "./Surface";
 
@@ -7,6 +6,7 @@ interface ArchivedThreadListProps {
   restoringThreadKey?: string;
   showDate?: boolean;
   onRestore(thread: HostedArchivedThread): void;
+  onOpen(thread: HostedArchivedThread): void;
 }
 
 export function ArchivedThreadList({
@@ -14,6 +14,7 @@ export function ArchivedThreadList({
   restoringThreadKey,
   showDate = false,
   onRestore,
+  onOpen,
 }: ArchivedThreadListProps) {
   return (
     <div className="pane-list archived-list">
@@ -22,11 +23,11 @@ export function ArchivedThreadList({
         return (
           <div className="archived-thread" key={archived.key}>
             <span className="archived-thread-icon" aria-hidden="true"><ArchiveIcon /></span>
-            <span className="archived-thread-title">
+            <button className="archived-thread-title secondary" onClick={() => onOpen(archived)}>
               {thread.title}
               <small>{archived.host.label}</small>
               {showDate && <time dateTime={thread.archived_at ?? thread.updated_at}>{archiveDate(thread)}</time>}
-            </span>
+            </button>
             {thread.agent_session && !thread.current_run && (
               <button
                 className="secondary archived-restore"
@@ -52,18 +53,20 @@ export function ArchiveScreen({
   threads,
   restoringThreadKey,
   onRestore,
+  onOpen,
   onClose,
 }: {
   threads: readonly HostedArchivedThread[];
   restoringThreadKey?: string;
   onRestore(thread: HostedArchivedThread): void;
+  onOpen(thread: HostedArchivedThread): void;
   onClose(): void;
 }) {
   return (
     <TaskSurface
       className="archive-screen"
       title="Archive"
-      description={`Archived Threads remain restorable for ${ARCHIVE_RETENTION_DAYS} days.`}
+      description="Archived conversations remain readable. Agents keep running until stopped."
       actions={<button className="surface-button secondary" type="button" onClick={onClose}>Close</button>}
       onClose={onClose}
     >
@@ -74,6 +77,7 @@ export function ArchiveScreen({
               restoringThreadKey={restoringThreadKey}
               showDate
               onRestore={onRestore}
+              onOpen={onOpen}
             />
           )
         : <p className="archive-empty">No archived Threads.</p>}

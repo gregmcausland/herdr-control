@@ -134,7 +134,7 @@ test("adapts agent-owned dark true-colour surfaces for a light terminal", async 
     }));
   });
 
-  await page.goto(`${clientUrl}/threads/thread-test?host=${encodeURIComponent(clientUrl!)}`);
+  await page.goto(`${clientUrl}/threads/thread-test/terminal?host=${encodeURIComponent(clientUrl!)}`);
   await expect(page.locator(".xterm-rows")).toContainText("Codex surface");
   const backgrounds = await page.locator(".xterm-rows span").evaluateAll((spans) => spans
     .filter((span) => span.textContent?.includes("surface"))

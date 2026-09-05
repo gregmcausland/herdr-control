@@ -12,7 +12,6 @@ import type {
   ThreadLifecycle,
   WorktreeInfo,
 } from "../shared/protocol.js";
-import { ARCHIVE_RETENTION_MS } from "../shared/archive-policy.js";
 
 const RESTORE_CLAIM_TTL_MS = 90_000;
 
@@ -141,10 +140,6 @@ export class ThreadManager {
     try {
       this.assertDatabaseHealthy();
       this.migrate();
-      this.transaction(() => {
-        this.purgeNonRestorableArchivedThreads();
-        this.purgeExpiredArchivedThreads(this.now());
-      });
       this.assertDatabaseHealthy();
     } catch (error) {
       this.database.close();
@@ -174,7 +169,6 @@ export class ThreadManager {
     const observedPaneIds = new Set(allObservations.map((pane) => pane.pane_id));
 
     this.transaction(() => {
-      this.purgeExpiredArchivedThreads(observedAt);
       this.reconcileProjects(snapshot, observedAt);
       this.backfillThreadProjects();
       for (const pane of snapshot.panes) {
@@ -268,12 +262,7 @@ export class ThreadManager {
     const projects = this.listProjects();
     const worktrees = this.listWorktrees();
     const retiredPaneIds = this.retiredPaneIds();
-    const hiddenPaneIds = new Set([
-      ...retiredPaneIds,
-      ...threads.flatMap((thread) =>
-        thread.lifecycle === "archived" && thread.current_run ? [thread.current_run.pane_id] : []
-      ),
-    ]);
+    const hiddenPaneIds = new Set(retiredPaneIds);
     const nextTopologyKey = snapshot.panes
       .map((pane) => `${pane.workspace_id}/${pane.tab_id}/${pane.pane_id}`)
       .sort()
@@ -387,9 +376,6 @@ export class ThreadManager {
     const archivedAt = this.now();
     const existing = this.thread(threadId);
     if (!existing) throw new ThreadNotFoundError(`Thread ${threadId} was not found`);
-    if (!existing.agent_session) {
-      throw new ThreadNotRestorableError("Threads without a resumable agent session must be deleted");
-    }
     const newlyArchived = existing.lifecycle !== "archived";
 
     if (newlyArchived) {
@@ -406,9 +392,6 @@ export class ThreadManager {
 
     const current = this.thread(threadId);
     if (!current) throw new ThreadNotFoundError(`Thread ${threadId} was not found`);
-    if (current.current_run) {
-      void this.requestPaneRetirement(current.current_run.pane_id).catch(() => undefined);
-    }
     return current;
   }
 
@@ -439,14 +422,16 @@ export class ThreadManager {
     if (existing.lifecycle !== "archived") {
       throw new ThreadNotRestorableError("Only archived Threads can be restored");
     }
+    if (existing.current_run) {
+      this.database.prepare("UPDATE threads SET lifecycle = 'open', archived_at = NULL, updated_at = ? WHERE thread_id = ?")
+        .run(this.now(), threadId);
+      return this.thread(threadId)!;
+    }
     if (!existing.agent_session) {
-      throw new ThreadNotRestorableError("This Thread has no agent session reference");
+      throw new ThreadNotRestorableError("This Thread has no resume reference. Its history remains available.");
     }
     if (existing.restoring) {
       throw new ThreadNotRestorableError("This Thread is already being restored");
-    }
-    if (existing.current_run) {
-      throw new ThreadNotRestorableError("This Thread is still retiring its active pane");
     }
 
     const lastRun = this.latestRun(threadId);
@@ -488,6 +473,13 @@ export class ThreadManager {
     }
 
     return this.thread(threadId)!;
+  }
+
+  async stop(threadId: string): Promise<PaneRetirementOutcome> {
+    const existing = this.thread(threadId);
+    if (!existing) throw new ThreadNotFoundError(`Thread ${threadId} was not found`);
+    if (!existing.current_run) return "retired";
+    return this.retirePane(existing.current_run.pane_id);
   }
 
   close(): void {
@@ -1071,10 +1063,6 @@ export class ThreadManager {
     if (this.activeRunForThread(threadId)) return;
     const thread = this.threadRow(threadId);
     if (!thread || thread.lifecycle === "archived") return;
-    if (!hasSessionReference(thread)) {
-      this.deleteThreadRecords(threadId);
-      return;
-    }
     this.database.prepare(`
       UPDATE threads
       SET lifecycle = 'archived', archived_at = ?, restore_agent_name = NULL,
@@ -1193,41 +1181,6 @@ export class ThreadManager {
     `).run(this.createId(), threadId, runId, kind, createdAt);
   }
 
-  /** Removes legacy archive entries that never gained a resumable agent session. */
-  private purgeNonRestorableArchivedThreads(): void {
-    const rows = this.database.prepare(`
-      SELECT threads.thread_id, runs.pane_id
-      FROM threads
-      LEFT JOIN runs ON runs.thread_id = threads.thread_id AND runs.ended_at IS NULL
-      WHERE threads.lifecycle = 'archived'
-        AND (
-          threads.session_source IS NULL OR threads.session_agent IS NULL
-          OR threads.session_kind IS NULL OR threads.session_value IS NULL
-        )
-    `).all() as unknown as Array<{ thread_id: string; pane_id: string | null }>;
-    for (const row of rows) {
-      if (row.pane_id) this.recordPaneRetirement(row.pane_id);
-      this.deleteThreadRecords(row.thread_id);
-    }
-  }
-
-  /** Permanently removes archived Threads after the fixed retention window. */
-  private purgeExpiredArchivedThreads(observedAt: string): void {
-    const cutoff = new Date(Date.parse(observedAt) - ARCHIVE_RETENTION_MS).toISOString();
-    const rows = this.database.prepare(`
-      SELECT threads.thread_id, runs.pane_id
-      FROM threads
-      LEFT JOIN runs ON runs.thread_id = threads.thread_id AND runs.ended_at IS NULL
-      WHERE threads.lifecycle = 'archived'
-        AND threads.archived_at IS NOT NULL
-        AND threads.archived_at <= ?
-    `).all(cutoff) as unknown as Array<{ thread_id: string; pane_id: string | null }>;
-    for (const row of rows) {
-      if (row.pane_id) this.recordPaneRetirement(row.pane_id);
-      this.deleteThreadRecords(row.thread_id);
-    }
-  }
-
   private deleteThreadRecords(threadId: string): void {
     this.database.prepare("DELETE FROM thread_events WHERE thread_id = ?").run(threadId);
     this.database.prepare("DELETE FROM runs WHERE thread_id = ?").run(threadId);
@@ -1325,10 +1278,6 @@ function sameOccupant(thread: ThreadRow, pane: PaneInfo & { agent: string }): bo
     : undefined;
   if (!storedSession || !observedSession) return true;
   return storedSession.every((value, index) => value === observedSession[index]);
-}
-
-function hasSessionReference(thread: ThreadRow): boolean {
-  return Boolean(thread.session_source && thread.session_agent && thread.session_kind && thread.session_value);
 }
 
 function assignmentFor(

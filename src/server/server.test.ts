@@ -188,11 +188,11 @@ describe("Thread creation", () => {
 });
 
 describe("Thread messages", () => {
-  it("acknowledges a native Herdr prompt for an active Thread", async () => {
+  it("retains a prompt receipt and returns it on replay without sending twice", async () => {
     const threads = new ThreadManager({ path: ":memory:" });
     const projected = threads.reconcile(agentSnapshot("session-1"));
     const promptThread = vi.fn(async () => undefined);
-    const herdr = { promptThread } as unknown as HerdrAdapter;
+    const herdr = { promptThread, snapshot: async () => agentSnapshot("session-1") } as unknown as HerdrAdapter;
     const requestRefresh = vi.fn();
     const session: SessionStateFeed = {
       current: () => ({ status: "live", revision: 1, snapshot: projected }),
@@ -216,13 +216,25 @@ describe("Thread messages", () => {
       const response = await fetch(`http://127.0.0.1:${port}/api/threads/${thread.thread_id}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: "  Continue with the fix.\n" }),
+        body: JSON.stringify({ text: "  Continue with the fix.\n", message_id: "receipt-test-1" }),
       });
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ acknowledged: true });
+      expect(await response.json()).toMatchObject({ acknowledged: true, message: { delivery: "acknowledged" } });
       expect(promptThread).toHaveBeenCalledExactlyOnceWith("w1:p1", "  Continue with the fix.\n");
       expect(requestRefresh).toHaveBeenCalledOnce();
+      const replay = await fetch(`http://127.0.0.1:${port}/api/threads/${thread.thread_id}/messages`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "  Continue with the fix.\n", message_id: "receipt-test-1" }),
+      });
+      expect(await replay.json()).toMatchObject({ acknowledged: true, message: { message_id: "receipt-test-1" } });
+      const conversation = await fetch(`http://127.0.0.1:${port}/api/threads/${thread.thread_id}/conversation`);
+      expect(await conversation.json()).toMatchObject({
+        thread: { thread_id: thread.thread_id },
+        messages: [{ message_id: "receipt-test-1", text: "  Continue with the fix.\n", delivery: "acknowledged" }],
+        has_older: false,
+      });
+      expect(promptThread).toHaveBeenCalledTimes(1);
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }

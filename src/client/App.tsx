@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { AGENT_KINDS } from "../shared/agents";
 import type { PaneInfo } from "../shared/protocol";
-import { TerminalView } from "./TerminalView";
+import { ConversationView } from "./ConversationView";
+const TerminalView = lazy(() => import("./TerminalView").then((module) => ({ default: module.TerminalView })));
 import { PlusIcon, ThreadCreationDialog } from "./ThreadCreationDialog";
 import { ThreadLaunchMenu } from "./ThreadLaunchMenu";
 import { SettingsDialog, SettingsIcon } from "./SettingsDialog";
@@ -59,7 +60,7 @@ function PaneActionDialog({
     <ConfirmSurface
       title={archive ? "Archive thread?" : action.thread ? "Delete thread?" : "Delete pane?"}
       message={archive
-        ? `${paneTitle(action.pane)} will leave the active view and can be restored later. Its terminal will retire when safe.`
+        ? `${paneTitle(action.pane)} will leave the active view and can be restored later. Its agent keeps running until you stop it.`
         : action.thread
           ? `${paneTitle(action.pane)} cannot be resumed yet. The thread will be permanently removed from Control and its terminal will retire when safe.`
           : `${paneTitle(action.pane)} will be removed from Control and its terminal will retire when safe.`}
@@ -146,18 +147,38 @@ export function App() {
     return () => window.clearInterval(interval);
   }, [hasWorkingDuration]);
 
+  if (terminalSelection?.route.kind === "thread" && (!terminalSelection.route.terminal || !activePane)) {
+    const feed = control.activeFeed;
+    return <ConversationView
+      key={`${terminalSelection.hostUrl}:${terminalSelection.route.id}`}
+      hostUrl={terminalSelection.hostUrl}
+      hostLabel={feed?.host.label ?? "Host"}
+      threadId={terminalSelection.route.id}
+      liveThread={feed?.snapshot?.threads?.find((thread) => thread.thread_id === terminalSelection.route.id)}
+      feedStatus={feed?.status ?? "connecting"}
+      onHome={control.returnHome}
+      onTerminal={() => control.openThread(feed!.host, terminalSelection.route.id, true)}
+    />;
+  }
+
   if (activePane) {
     return (
-      <TerminalView
+      <Suspense fallback={<p className="notice">Opening terminal…</p>}><TerminalView
         bridgeUrl={terminalSelection!.hostUrl}
         pane={activePane}
         themeId={settings.theme}
         fontFamily={settings.terminalFontFamily}
         fontSize={settings.terminalFontSize}
         cursorBlink={settings.terminalCursorBlink}
-        onBack={control.returnHome}
-      />
+        onBack={terminalSelection?.route.kind === "thread"
+          ? () => control.openThread(control.activeFeed!.host, terminalSelection.route.id)
+          : control.returnHome}
+      /></Suspense>
     );
+  }
+
+  if (terminalSelection) {
+    return <main className="shell"><button className="secondary" onClick={control.returnHome}>Home</button><p className="notice" role="status">Waiting for Herdr to report this agent or terminal…</p></main>;
   }
 
   return (
@@ -256,10 +277,11 @@ export function App() {
                     </button>
                   )}
                 </h3>
+                {panes.length === 0 && <p className="project-empty">No running threads. Start a thread here whenever you need it.</p>}
                 {panes.length > 0 && <div className="pane-list">
                   {panes.map((pane) => {
                     const thread = snapshot.threads?.find((candidate) => candidate.thread_id === pane.thread_id);
-                    const kind = thread?.agent_session ? "archive" : "delete";
+                    const kind = thread ? "archive" : "delete";
                     return <div className="pane-row" key={pane.pane_id}>
                       <button
                         className={`pane ${pane.agent_status === "working" ? "working" : ""}`}
@@ -311,6 +333,7 @@ export function App() {
                   threads={recentArchivedThreads}
                   restoringThreadKey={restoringThreadKey}
                   onRestore={(archived) => void control.restoreThread(archived)}
+                  onOpen={(archived) => control.openThread(archived.host, archived.thread.thread_id)}
                 />
               )}
             </section>
@@ -340,6 +363,7 @@ export function App() {
           threads={archivedThreads}
           restoringThreadKey={restoringThreadKey}
           onRestore={(archived) => void control.restoreThread(archived)}
+          onOpen={(archived) => control.openThread(archived.host, archived.thread.thread_id)}
           onClose={control.closeArchive}
         />
       )}

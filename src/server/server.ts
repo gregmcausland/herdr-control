@@ -1,6 +1,10 @@
+import { randomUUID } from "node:crypto";
+import { ConversationStore } from "./conversations.js";
+import { collectReplies } from "./capture.js";
+import { MessageDeliveryService, MessageConflictError } from "./message-delivery.js";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { extname, resolve, sep } from "node:path";
+import { dirname, join, extname, resolve, sep } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import type {
   ControlHost,
@@ -84,6 +88,11 @@ export function createControlServer(
     herdr,
     () => session.requestRefresh?.(),
   );
+  const conversations = new ConversationStore(config.statePath);
+  const capture = config.statePath === ":memory:" ? undefined : collectReplies(
+    join(dirname(config.statePath), "capture"), config.herdrSocketPath, threads, conversations,
+  );
+  const delivery = new MessageDeliveryService(conversations, threadLifecycle, () => session.current().status === "live");
   const hosts = providedHosts ?? new ControlHostStore({
     path: config.statePath,
     legacyHosts: readLegacyControlHosts(config.legacyHostsPath),
@@ -217,18 +226,43 @@ export function createControlServer(
       }
       return;
     }
+    const conversationMatch = /^\/api\/threads\/([^/]+)\/conversation$/.exec(url.pathname);
+    if (request.method === "GET" && conversationMatch) {
+      const thread = threads.getThread(decodeIdentifier(conversationMatch[1]) ?? "");
+      if (!thread) { sendJson(response, 404, { error: "Thread not found" }); return; }
+      await capture?.refresh();
+      const before = Number(url.searchParams.get("before") ?? Number.MAX_SAFE_INTEGER);
+      const page = conversations.list(thread.thread_id, Number.isSafeInteger(before) && before > 0 ? before : Number.MAX_SAFE_INTEGER);
+      sendJson(response, 200, { thread, ...page, capture_available: conversations.hasCapture(thread.thread_id) });
+      return;
+    }
+    const stopMatch = /^\/api\/threads\/([^/]+)\/stop$/.exec(url.pathname);
+    if (request.method === "POST" && stopMatch) {
+      try {
+        if (session.current().status !== "live") throw new ThreadNotPromptableError("The host is reconnecting");
+        const outcome = await threadLifecycle.stop(decodeIdentifier(stopMatch[1]) ?? "");
+        sendJson(response, 200, { outcome });
+      } catch (error) {
+        sendJson(response, 409, { error: error instanceof Error ? error.message : "Unable to stop agent" });
+      }
+      return;
+    }
     const messageThreadId = threadMessageFromPath(url.pathname);
     if (request.method === "POST" && messageThreadId) {
       try {
-        const text = threadMessageRequest(await readJsonBody(request, 128 * 1024));
-        await threadLifecycle.prompt(messageThreadId, text);
-        sendJson(response, 200, { acknowledged: true });
+        const input = await readJsonBody(request, 128 * 1024);
+        const text = threadMessageRequest(input);
+        const fields = record(input);
+        const id = fields?.message_id === undefined ? randomUUID() : requiredText(fields.message_id, "Message ID", 128);
+        if (!/^[a-zA-Z0-9:_-]+$/.test(id)) throw new RequestBodyError("Invalid message ID");
+        const message = await delivery.send(messageThreadId, id, text, fields?.retry === true);
+        sendJson(response, 200, { acknowledged: message.delivery === "acknowledged", message });
       } catch (error) {
         const status = error instanceof RequestBodyError
           ? 400
           : error instanceof ThreadNotFoundError
             ? 404
-            : error instanceof ThreadNotPromptableError
+            : error instanceof ThreadNotPromptableError || error instanceof MessageConflictError
               ? 409
             : 502;
         sendJson(response, status, {
@@ -320,14 +354,12 @@ export function createControlServer(
       }
       send(message);
     });
-    void herdr.focusPane(target).catch((error: unknown) => {
-      send({ type: "error", message: error instanceof Error ? error.message : "Unable to mark pane as viewed" });
-    });
 
     socket.on("message", (raw) => {
       try {
         const message = JSON.parse(raw.toString()) as TerminalClientMessage;
         if (!isClientMessage(message)) throw new Error("Invalid terminal command");
+        if (message.type === "ping") { send({ type: "pong" }); return; }
         if (message.type === "view") {
           void herdr.focusPane(target).catch((error: unknown) => {
             send({ type: "error", message: error instanceof Error ? error.message : "Unable to mark pane as viewed" });
@@ -346,14 +378,21 @@ export function createControlServer(
         send({ type: "error", message: error instanceof Error ? error.message : "Invalid terminal command" });
       }
     });
-    socket.on("close", () => terminal.dispose());
-    socket.on("error", () => terminal.dispose());
+    let alive = true;
+    const heartbeat = setInterval(() => {
+      if (!alive) { socket.terminate(); return; }
+      alive = false;
+      socket.ping();
+    }, 15_000);
+    heartbeat.unref();
+    socket.on("pong", () => { alive = true; });
+    socket.on("close", () => { clearInterval(heartbeat); terminal.dispose(); });
+    socket.on("error", () => { clearInterval(heartbeat); terminal.dispose(); });
   });
 
   server.on("close", () => {
     session.close();
-    threads.close();
-    hosts.close();
+    void (capture?.close() ?? Promise.resolve()).then(() => { conversations.close(); threads.close(); hosts.close(); });
   });
 
   return server;
@@ -390,6 +429,7 @@ function positiveInteger(value: string | null, fallback: number): number {
 
 function isClientMessage(message: TerminalClientMessage): boolean {
   if (!message || typeof message !== "object") return false;
+  if (message.type === "ping") return true;
   if (message.type === "release") return true;
   if (message.type === "view") return true;
   if (message.type === "input") return typeof message.data === "string";

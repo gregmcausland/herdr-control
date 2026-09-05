@@ -134,4 +134,27 @@ describe("terminal session ownership", () => {
     expect(sockets).toHaveLength(1);
     expect(session.getState().phase).toBe("occupied");
   });
+  it("replaces an apparently open connection that stops answering health checks", () => {
+    const { session, sockets } = setup();
+    session.connect("control");
+    sockets[0].receive({ type: "ready", mode: "control" });
+    vi.advanceTimersByTime(10_000);
+    expect(sockets[0].sent).toContainEqual({ type: "ping" });
+    vi.advanceTimersByTime(5_250);
+    expect(sockets).toHaveLength(2);
+    session.dispose();
+  });
+
+  it("keeps a healthy observer connected without requiring control", () => {
+    const { session, sockets } = setup();
+    session.connect("observe");
+    sockets[0].receive({ type: "ready", mode: "observe" });
+    vi.advanceTimersByTime(10_000);
+    sockets[0].receive({ type: "pong" });
+    vi.advanceTimersByTime(5_001);
+    expect(sockets).toHaveLength(1);
+    expect(session.getState().phase).toBe("connected");
+    session.dispose();
+  });
+
 });

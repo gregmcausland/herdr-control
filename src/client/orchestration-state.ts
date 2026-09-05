@@ -23,6 +23,7 @@ import {
   searchForHost,
   terminalRouteFromPath,
   threadPath,
+  threadTerminalPath,
   type TerminalRoute,
 } from "./routes";
 
@@ -198,12 +199,12 @@ export function useControlOrchestration() {
     localStorage.removeItem(STORAGE_KEY);
     setPreferredHostUrl(homeBridge);
   }, [homeBridge, hostConfiguration.status, hostConfiguration.storedHosts, preferredHostUrl, state.terminalSelection]);
-
   useEffect(() => {
-    if (!state.terminalSelection || !activeSnapshot || activePane) return;
-    window.history.replaceState(null, "", homePath(window.location.search));
-    dispatch({ type: "terminal.closed" });
-  }, [activePane, activeSnapshot, state.terminalSelection]);
+    if (state.terminalSelection?.route.kind !== "pane" || !activePane?.thread_id || !activeFeed) return;
+    const route: TerminalRoute = { kind: "thread", id: activePane.thread_id };
+    window.history.replaceState(null, "", threadPath(route.id, window.location.search));
+    dispatch({ type: "terminal.opened", selection: { hostUrl: activeFeed.host.url, route } });
+  }, [activePane?.thread_id, activeFeed?.host.url, state.terminalSelection]);
 
   function openPane(host: ControlHost, pane: PaneInfo) {
     const route: TerminalRoute = pane.thread_id
@@ -215,6 +216,14 @@ export function useControlOrchestration() {
     setPreferredHostUrl(host.url);
     window.history.pushState(null, "", path);
     dispatch({ type: "terminal.opened", selection: { route, hostUrl: host.url } });
+  }
+
+  function openThread(host: ControlHost, threadId: string, terminal = false) {
+    const search = searchForHost(host.url, window.location.search);
+    window.history.pushState(null, "", terminal ? threadTerminalPath(threadId, search) : threadPath(threadId, search));
+    setPreferredHostUrl(host.url);
+    localStorage.setItem(STORAGE_KEY, host.url);
+    dispatch({ type: "terminal.opened", selection: { hostUrl: host.url, route: { kind: "thread", id: threadId, ...(terminal ? { terminal: true } : {}) } } });
   }
 
   function returnHome() {
@@ -251,6 +260,7 @@ export function useControlOrchestration() {
         "POST",
       );
       dispatch({ type: "restore.completed" });
+      openThread(archived.host, archived.thread.thread_id);
     } catch (error) {
       dispatch({
         type: "restore.completed",
@@ -272,9 +282,15 @@ export function useControlOrchestration() {
           body: JSON.stringify(request),
         },
       );
-      const body = await response.json().catch(() => undefined) as { error?: string } | undefined;
+      const body = await response.json().catch(() => undefined) as { error?: string; thread?: { pane_id: string } } | undefined;
       if (!response.ok) throw new Error(body?.error ?? `Request failed with status ${response.status}`);
       dispatch({ type: "creation.completed" });
+      if (body?.thread) {
+        const paneId = body.thread.pane_id;
+        // A launch is acknowledged before the feed necessarily adopts its Thread.
+        window.history.pushState(null, "", panePath(paneId, searchForHost(target.host.url, window.location.search)));
+        dispatch({ type: "terminal.opened", selection: { hostUrl: target.host.url, route: { kind: "pane", id: paneId } } });
+      }
     } catch (error) {
       dispatch({
         type: "creation.failed",
@@ -293,6 +309,8 @@ export function useControlOrchestration() {
     archivedThreads,
     recentArchivedThreads: recentArchivedThreads(archivedThreads),
     activePane,
+    activeFeed,
+    openThread,
     openPane,
     returnHome,
     openSettings: () => dispatch({ type: "settings.opened" }),

@@ -83,7 +83,7 @@ describe("ThreadManager", () => {
     }
   });
 
-  it("retains archived Threads for thirty days and purges them on startup after expiry", () => {
+  it("retains archived Threads across restarts without expiring conversation identity", () => {
     const directory = mkdtempSync(join(tmpdir(), "herdr-control-archive-retention-"));
     const path = join(directory, "control.db");
     try {
@@ -101,7 +101,7 @@ describe("ThreadManager", () => {
 
       now = "2026-07-02T12:00:00.000Z";
       const expired = new ThreadManager({ path, createId: ids(), now: () => now });
-      expect(expired.list()).toHaveLength(0);
+      expect(expired.list()).toHaveLength(1);
       expired.close();
     } finally {
       rmSync(directory, { recursive: true, force: true });
@@ -381,8 +381,8 @@ describe("ThreadManager", () => {
       const threads = new ThreadManager({ path, createId: ids(), now: () => "2026-08-19T12:00:00.000Z" });
       const reconciled = threads.reconcile(snapshot("w1:p1", "session-b"));
 
-      expect(reconciled.threads).toHaveLength(2);
-      expect(reconciled.threads?.some((thread) => thread.thread_id === "legacy-disposable")).toBe(false);
+      expect(reconciled.threads).toHaveLength(3);
+      expect(reconciled.threads?.some((thread) => thread.thread_id === "legacy-disposable")).toBe(true);
       expect(reconciled.panes[0].thread_id).not.toBe("legacy-thread");
       threads.close();
     } finally {
@@ -521,7 +521,7 @@ describe("ThreadManager", () => {
     }
   });
 
-  it("archives the Thread and asks Herdr to retire only its active pane", async () => {
+  it("archives visibility without stopping the agent", async () => {
     const retirePane = vi.fn(async () => "retired" as const);
     const threads = new ThreadManager({
       path: ":memory:",
@@ -534,11 +534,11 @@ describe("ThreadManager", () => {
     const archived = await threads.archive(adopted.threads![0].thread_id);
 
     expect(archived.lifecycle).toBe("archived");
-    expect(retirePane).toHaveBeenCalledExactlyOnceWith("w1:p1");
+    expect(retirePane).not.toHaveBeenCalled();
     threads.close();
   });
 
-  it("keeps retained Herdr Runs archived without retrying retirement during reconciliation", async () => {
+  it("keeps archived agents accessible and unarchives the same Run without a new process", async () => {
     const retirePane = vi.fn(async () => "retained" as const);
     const threads = new ThreadManager({ path: ":memory:", retirePane, createId: ids() });
     const adopted = threads.reconcile(snapshot());
@@ -550,8 +550,11 @@ describe("ThreadManager", () => {
       lifecycle: "archived",
       current_run: { pane_id: "w1:p1" },
     });
-    expect(reconciled.panes).toEqual([]);
-    expect(retirePane).toHaveBeenCalledTimes(1);
+    expect(reconciled.panes).toHaveLength(1);
+    const reopened = await threads.restore(adopted.threads![0].thread_id);
+    expect(reopened.lifecycle).toBe("open");
+    expect(reopened.current_run?.run_id).toBe(adopted.threads![0].current_run?.run_id);
+    expect(retirePane).not.toHaveBeenCalled();
     threads.close();
   });
 
@@ -569,38 +572,33 @@ describe("ThreadManager", () => {
     threads.close();
   });
 
-  it("deletes a non-restorable Thread automatically when its Run disappears", () => {
+  it("retains a non-restorable Thread when its Run disappears", () => {
     const threads = new ThreadManager({ path: ":memory:", createId: ids() });
     threads.reconcile(snapshot("w1:p1", null));
 
     const reconciled = threads.reconcile(emptySnapshot());
 
-    expect(reconciled.threads).toEqual([]);
+    expect(reconciled.threads).toHaveLength(1);
+    expect(reconciled.threads?.[0]).toMatchObject({ lifecycle: "archived", current_run: undefined });
     threads.close();
   });
 
-  it("refuses to archive a Thread until it has a resumable session reference", async () => {
+  it("archives a Thread without requiring a resume reference", async () => {
     const threads = new ThreadManager({ path: ":memory:", createId: ids() });
     const adopted = threads.reconcile(snapshot("w1:p1", null));
 
-    await expect(threads.archive(adopted.threads![0].thread_id)).rejects.toThrow(/must be deleted/);
+    await expect(threads.archive(adopted.threads![0].thread_id)).resolves.toMatchObject({ lifecycle: "archived" });
     expect(threads.list()).toHaveLength(1);
     threads.close();
   });
 
-  it("keeps a Thread archived when runtime retirement fails", async () => {
-    const threads = new ThreadManager({
-      path: ":memory:",
-      retirePane: async () => { throw new Error("retirement failed"); },
-      createId: ids(),
-      now: () => "2026-08-19T12:00:00.000Z",
-    });
+  it("reports a retained process when stopping is unsafe and preserves the thread", async () => {
+    const retirePane = vi.fn(async () => "retained" as const);
+    const threads = new ThreadManager({ path: ":memory:", retirePane, createId: ids() });
     const adopted = threads.reconcile(snapshot());
-
-    const archived = await threads.archive(adopted.threads![0].thread_id);
-
-    expect(archived).toMatchObject({ lifecycle: "archived" });
-    expect(threads.list()[0]).toMatchObject({ lifecycle: "archived" });
+    await expect(threads.stop(adopted.threads![0].thread_id)).resolves.toBe("retained");
+    expect(retirePane).toHaveBeenCalledExactlyOnceWith("w1:p1");
+    expect(threads.list()[0].current_run).toBeDefined();
     threads.close();
   });
 

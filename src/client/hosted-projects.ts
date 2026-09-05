@@ -83,7 +83,7 @@ export function archivedThreadsAcrossHosts(
   feeds: readonly HostSessionFeed[],
 ): HostedArchivedThread[] {
   return feeds.flatMap((feed) => feed.snapshot?.threads
-    ?.filter((thread) => thread.lifecycle === "archived" && thread.agent_session)
+    ?.filter((thread) => thread.lifecycle === "archived")
     .map((thread) => ({
       key: hostedKey(feed.host.url, thread.thread_id),
       host: feed.host,

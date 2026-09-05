@@ -11,6 +11,18 @@ import {
 import { ThreadManager, ThreadNotDeletableError, ThreadNotFoundError } from "./threads";
 
 describe("ThreadLifecycleService", () => {
+  it("does not stop a replacement agent at a reused pane locator", async () => {
+    const retirePane = vi.fn(async () => "retired" as const);
+    const threads = new ThreadManager({ path: ":memory:", retirePane });
+    const original = threads.reconcile(agentSnapshot("session-1")).threads![0];
+    const lifecycle = new ThreadLifecycleService(threads, {
+      snapshot: async () => agentSnapshot("replacement-session"),
+    } as unknown as HerdrAdapter);
+    await lifecycle.stop(original.thread_id);
+    expect(retirePane).not.toHaveBeenCalled();
+    expect(threads.getThread(original.thread_id)?.current_run).toBeUndefined();
+    threads.close();
+  });
   it("resolves durable placement before asking Herdr to create a Thread", async () => {
     const threads = new ThreadManager({ path: ":memory:" });
     const projected = threads.reconcile(repositorySnapshot());
@@ -91,7 +103,7 @@ describe("ThreadLifecycleService", () => {
     const refresh = vi.fn();
     const lifecycle = new ThreadLifecycleService(
       threads,
-      { promptThread } as unknown as HerdrAdapter,
+      { promptThread, snapshot: async () => agentSnapshot("session-1") } as unknown as HerdrAdapter,
       refresh,
     );
 

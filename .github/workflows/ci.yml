@@ -26,4 +26,4 @@ jobs:
       - if: matrix.node == 24
         run: npx playwright install --with-deps chromium
       - if: matrix.node == 24
-        run: npm run test:browser -- tests/browser/multi-host.spec.ts
+        run: npm run test:browser:mock

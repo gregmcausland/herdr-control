@@ -25,6 +25,7 @@ type ThreadLifecycleStore = Pick<
   | "listWorktrees"
   | "reconcile"
   | "restore"
+  | "stop"
 >;
 
 /** Owns the policy that coordinates durable Threads with current Herdr state. */
@@ -79,13 +80,29 @@ export class ThreadLifecycleService {
     return thread;
   }
 
+  async stop(threadId: string) {
+    // Reconcile first so a reused pane locator cannot stop a different agent.
+    this.threads.reconcile(await this.herdr.snapshot());
+    const result = await this.threads.stop(threadId);
+    this.requestRefresh();
+    return result;
+  }
+
   async prompt(threadId: string, text: string): Promise<void> {
     const thread = this.threads.getThread(threadId);
     if (!thread) throw new ThreadNotFoundError(`Thread ${threadId} was not found`);
-    if (thread.lifecycle !== "open" || !thread.current_run) {
+    if (!thread.current_run) {
       throw new ThreadNotPromptableError("This Thread has no active agent");
     }
-    await this.herdr.promptThread(thread.current_run.pane_id, text);
+    // Check the current occupant before using a mutable pane locator. Herdr's
+    // agent-aware prompt still owns validation and atomic text/Enter submission.
+    const fresh = await this.herdr.snapshot();
+    const pane = fresh.panes.find((pane) => pane.terminal_id === thread.current_run!.terminal_id);
+    if (!pane || pane.agent !== thread.agent || (pane.agent_session && thread.agent_session
+      && pane.agent_session.value !== thread.agent_session.value)) {
+      throw new ThreadNotPromptableError("The agent changed or stopped. Refresh the Thread before sending.");
+    }
+    await this.herdr.promptThread(pane.pane_id, text);
     this.requestRefresh();
   }
 

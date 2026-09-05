@@ -121,12 +121,14 @@ describe("workspace grouping", () => {
     expect(groups.map(({ id }) => id)).toEqual([
       "project-alpha",
       "project-bravo",
+      "project-latest",
+      "project-recent",
       "workspace:xlean",
     ]);
     expect(projects[0].project_id).toBe("project-bravo");
   });
 
-  it("omits durable Projects without active panes", () => {
+  it("keeps durable Projects without active panes", () => {
     const projects: ProjectInfo[] = [{
       project_id: "project-1",
       name: "Control",
@@ -136,6 +138,6 @@ describe("workspace grouping", () => {
       updated_at: "2026-08-20T00:00:00.000Z",
     }];
 
-    expect(groupPanesByProject(projects, [], [], [])).toEqual([]);
+    expect(groupPanesByProject(projects, [], [], [])).toEqual([{ id: "project-1", label: "Control", project: projects[0], panes: [] }]);
   });
 });

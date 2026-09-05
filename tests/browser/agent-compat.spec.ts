@@ -25,6 +25,7 @@ test("operates a native coding-agent TUI through xterm", async ({ page }) => {
   await page.goto(`${clientUrl}/?host=${encodeURIComponent(bridgeUrl!)}`);
   await expect(page.getByRole("heading", { name: "Herdr Control" })).toBeVisible();
   await page.getByTitle(paneId!).click();
+  await page.getByRole("button", { name: "Open terminal", exact: true }).click();
   await expect(page.locator(".terminal-header small")).toHaveText("Control");
 
   const input = page.locator(".xterm-helper-textarea");

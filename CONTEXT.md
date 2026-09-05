@@ -49,7 +49,7 @@ The optional association between one Worktree and a Herdr workspace hosting its 
 _Avoid_: Worktree, Project Runtime, Thread
 
 **Thread**:
-A unit of agent work belonging to one Project. It may be associated with a Worktree and becomes eligible for durable retention once it has an agent session reference.
+A durable unit of agent work belonging to one Project. It may be associated with a Worktree. Its identity and captured conversation survive the end of a Run, even without an agent session reference.
 _Avoid_: Pane, tab, agent session
 
 **Run**:
@@ -61,7 +61,7 @@ A continuous interval within a Run while its agent reports Working. It is the us
 _Avoid_: Run duration, pane age, session duration
 
 **Retained Run**:
-A Run kept alive to preserve its Worktree Runtime after its Thread has been archived. It is absent from active orchestration views and remains eligible for deferred retirement.
+A Run that Herdr keeps alive when a stop request cannot safely retire its Worktree Runtime. Archiving alone does not request retirement.
 _Avoid_: Orphaned pane, archived pane
 
 **Agent session reference**:
@@ -69,7 +69,7 @@ An opaque provider-issued identifier or path used to continue an agent conversat
 _Avoid_: Run ID, pane ID, Thread ID
 
 **Archived Thread**:
-A retained Thread with an agent session reference that has been removed from active orchestration views. Archiving is a Control lifecycle state and does not require its current Run or Project Runtime to be retired.
+A Thread removed from active orchestration views. Archiving changes visibility only; stopping its agent is a separate action. Captured history does not expire automatically.
 _Avoid_: Deleted pane, closed Thread
 
 **Restorable Thread**:
@@ -79,6 +79,14 @@ _Avoid_: Archived pane, reopened Run, Thread without a session reference
 **Adopted Thread**:
 A Thread recorded after discovering an agent Run that Herdr Control did not launch. Once adopted, it has the same durable identity and controls as any other Thread.
 _Avoid_: Unmanaged pane, imported session
+
+**Conversation**:
+Durable user messages and completed agent replies associated with a Thread. Capture observes the Herdr-owned agent through provider hooks; it does not infer messages from terminal output. It begins when capture is installed and may contain gaps.
+_Avoid_: Full transcript, terminal recording
+
+**Delivery receipt**:
+A durable record keyed by the browser's submission ID. Acknowledged means Herdr accepted the prompt. Uncertain means acceptance could not be established and Control must not automatically repeat it.
+_Avoid_: Completed task, exactly-once agent execution
 
 **Pane deletion**:
 Removing a transient non-agent pane from active orchestration without creating a Thread. Its runtime may remain pending retirement.

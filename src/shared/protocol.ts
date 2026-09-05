@@ -1,6 +1,7 @@
 export type TerminalMode = "control" | "observe";
 
 export type TerminalClientMessage =
+  | { type: "ping" }
   | { type: "input"; data: string }
   | { type: "key"; key: string }
   | { type: "view" }
@@ -16,6 +17,7 @@ export type TerminalClientMessage =
   | { type: "release" };
 
 export type TerminalServerMessage =
+  | { type: "pong" }
   | { type: "ready"; mode: TerminalMode }
   | { type: "released" }
   | {
@@ -118,6 +120,27 @@ export interface ThreadInfo {
   updated_at: string;
   archived_at?: string;
   current_run?: ThreadRunInfo;
+}
+
+export type MessageDelivery = "sending" | "acknowledged" | "failed" | "uncertain";
+
+export interface ConversationMessage {
+  message_id: string;
+  sequence: number;
+  thread_id: string;
+  role: "user" | "assistant";
+  text: string;
+  source: "control" | "agent";
+  created_at: string;
+  delivery?: MessageDelivery;
+  error?: string;
+}
+
+export interface ConversationSnapshot {
+  thread: ThreadInfo;
+  messages: ConversationMessage[];
+  has_older: boolean;
+  capture_available: boolean;
 }
 
 export interface RepositoryWorktreeInfo {

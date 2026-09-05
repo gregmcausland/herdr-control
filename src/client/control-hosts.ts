@@ -18,7 +18,7 @@ export function useControlHosts(
   homeBridgeUrl: string,
   activeHostUrl: string,
 ): ControlHostConfiguration {
-  const [storedHosts, setStoredHosts] = useState<readonly StoredControlHost[]>([]);
+  const [storedHosts, setStoredHosts] = useState<readonly StoredControlHost[]>(() => cachedHosts(homeBridgeUrl));
   const [status, setStatus] = useState<ControlHostConfigurationStatus>("loading");
   const [message, setMessage] = useState<string>();
 
@@ -27,11 +27,12 @@ export function useControlHosts(
     void requestHosts(homeBridgeUrl).then((hosts) => {
       if (!current) return;
       setStoredHosts(hosts);
+      try { localStorage.setItem(`herdr-control:hosts:${homeBridgeUrl}`, JSON.stringify(hosts)); } catch { /* Optional offline cache. */ }
       setStatus("database");
       setMessage(undefined);
     }).catch((error: unknown) => {
       if (!current) return;
-      setStoredHosts([]);
+      setStoredHosts(cachedHosts(homeBridgeUrl));
       setStatus("fallback");
       setMessage(error instanceof Error ? error.message : "Unable to load Control Hosts");
     });
@@ -40,7 +41,11 @@ export function useControlHosts(
     };
   }, [homeBridgeUrl]);
 
-  const savedHosts = status === "database" ? storedHosts : configuredHosts;
+  const savedHosts = storedHosts.length || status === "database" ? storedHosts : configuredHosts;
+  useEffect(() => {
+    if (status !== "database") return;
+    try { localStorage.setItem(`herdr-control:hosts:${homeBridgeUrl}`, JSON.stringify(storedHosts)); } catch { /* Optional cache. */ }
+  }, [homeBridgeUrl, status, storedHosts]);
   const hosts = useMemo(
     () => hostOptions(activeHostUrl, savedHosts),
     [activeHostUrl, savedHosts],
@@ -110,4 +115,11 @@ function isStoredHost(value: unknown): value is StoredControlHost {
 function compareHosts(first: ControlHost, second: ControlHost): number {
   return first.label.localeCompare(second.label, undefined, { sensitivity: "base" })
     || first.url.localeCompare(second.url);
+}
+
+function cachedHosts(homeBridgeUrl: string): StoredControlHost[] {
+  try {
+    const hosts = JSON.parse(localStorage.getItem(`herdr-control:hosts:${homeBridgeUrl}`) ?? "[]");
+    return Array.isArray(hosts) ? hosts.filter((host) => typeof host.host_id === "string" && typeof host.url === "string" && typeof host.label === "string") : [];
+  } catch { return []; }
 }

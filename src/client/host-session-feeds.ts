@@ -42,6 +42,7 @@ export function connectHostSessionFeeds(
     sources = [];
 
     for (const host of hosts) {
+      update(host.url, (current) => ({ ...current, status: current.snapshot ? "stale" : "connecting", message: "Checking host connection…" }));
       try {
         const source = openSource(new URL("/api/session/events", host.url));
         sources.push(source);
@@ -61,7 +62,13 @@ export function connectHostSessionFeeds(
               }));
               return;
             }
-            update(host.url, () => incoming);
+            update(host.url, (current) => {
+              const next = { ...incoming, snapshot: incoming.snapshot ?? current.snapshot };
+              if (incoming.snapshot) {
+                try { localStorage.setItem(`herdr-control:snapshot:${host.url}`, JSON.stringify(incoming.snapshot)); } catch { /* Optional offline cache. */ }
+              }
+              return next;
+            });
             return;
           }
           update(host.url, (current) => ({
@@ -104,7 +111,13 @@ export function connectHostSessionFeeds(
 function initialHostSessionStates(
   hosts: readonly ControlHost[],
 ): Record<string, SessionFeedState> {
-  return Object.fromEntries(hosts.map((host) => [host.url, INITIAL_STATE]));
+  return Object.fromEntries(hosts.map((host) => {
+    try {
+      const snapshot = JSON.parse(localStorage.getItem(`herdr-control:snapshot:${host.url}`) ?? "null");
+      if (snapshot && Array.isArray(snapshot.panes) && Array.isArray(snapshot.workspaces)) return [host.url, { ...INITIAL_STATE, snapshot }];
+    } catch { /* Initial connection will fetch the inventory. */ }
+    return [host.url, INITIAL_STATE];
+  }));
 }
 
 function parseSessionFeedState(data: string): SessionFeedState | undefined {

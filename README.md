@@ -30,13 +30,14 @@ still change.
   their underlying processes.
 - Type, paste text or clipboard images, send modified keys, resize, scroll, and
   open HTTP or HTTPS links from desktop or phone layouts.
-- Send mobile messages through Herdr's agent-aware prompt command without taking
-  terminal control. Failed messages remain in the composer for retry.
+- Read completed replies as Markdown and send messages from a native composer,
+  without attaching a terminal. Drafts survive navigation and reload. Durable
+  send receipts prevent retries from repeating an accepted Control request.
 - Observe a terminal controlled by another browser, explicitly take control,
   and recover control after reconnecting.
-- Archive agent threads and restore supported conversations when Herdr has
-  captured a resumable session reference. The main view keeps 7 days of recent
-  history, the archive keeps 30 days, then Control permanently removes it.
+- Archive threads without stopping their agents, stop agents explicitly, and
+  resume supported sessions. The main view shows 7 days of recent history;
+  the full archive retains conversations without automatic expiry.
 - Choose from eight light and dark themes and customise interface fonts,
   terminal fonts, text sizes, cursor behaviour, and new-thread defaults.
 
@@ -55,8 +56,13 @@ host, so different Herdr machines can offer different agents.
   a trusted access layer for remote access.
 - Thread restoration currently supports Codex, Claude, and Pi, and requires a
   provider reference reported by the corresponding Herdr integration.
-- A thread that ends before gaining a resumable session reference cannot be
-  restored and is removed rather than placed in the archive.
+- Reply capture currently supports Codex, Claude, and Pi through optional host
+  hooks. It captures new completed replies and prompts, not historical transcripts,
+  tool activity, or streamed tokens. Other agents remain accessible in the terminal.
+- Threads without resumable session references remain readable but cannot resume.
+- The browser caches the latest 100 messages and drafts on the device. Reading
+  a cached conversation during host disconnection requires the app to be loaded;
+  this release does not provide a fully offline app shell.
 - Chromium desktop and a phone-sized Chromium viewport have been validated.
   Safari and WebKit compatibility remain unverified.
 - The permission-bypass option gives supported agents substantially more
@@ -70,7 +76,7 @@ harness, Node.js, xterm.js, or the deployment environment, check the
 ## How it works
 
 ```text
-browser + xterm.js
+browser conversation + optional xterm.js
         ↕ HTTP/WebSocket
 Herdr Control bridge
         ↕ local Herdr CLI/session protocol
@@ -79,16 +85,17 @@ Herdr-owned terminal
 
 Herdr remains responsible for running processes, terminal ownership, and the
 current workspace layout. Control adds browser access and stores stable Project,
-Worktree, Thread, and Run metadata. It does not store terminal output or
-reconstruct conversation transcripts.
+Worktree, Thread, and Run metadata, captured messages, and send receipts in SQLite.
+Small provider integrations write completed replies to a local spool, which the
+bridge imports even after downtime. Control does not store terminal output.
 
 If the Herdr connection drops, Control keeps showing the last known state while
 it reconnects. The agents and terminals continue running under Herdr throughout.
 
 Recognised agent panes are adopted automatically. When a resumable agent pane
-closes, its current run ends and its thread moves to the archive. Agent threads
-without a session reference and ordinary shell panes are not retained as
-restorable history.
+closes, its current run ends and its thread moves to the archive. Threads without
+a session reference are retained too, with resume unavailable. Ordinary shell
+panes do not create conversation history.
 
 ## Quick start
 
@@ -126,6 +133,15 @@ npm run control -- restart
 npm run control -- remove
 ```
 
+To enable the conversation reader, install capture on each agent host:
+
+```bash
+npm run control -- capture-install
+```
+
+See [reply capture](docs/reply-capture.md) for supported hooks, activation, custom
+state locations, and troubleshooting. Existing agent processes keep running.
+
 Removal stops and removes the user service but keeps configuration and database
 files. The managed path currently supports Linux with systemd user services.
 
@@ -156,12 +172,13 @@ herdr integration install pi
 ```
 
 Restoration is offered only after Herdr reports a supported provider session
-reference. A thread leaves the active view immediately when archived, even if
-Herdr must wait for its worktree before safely retiring the pane.
+reference. Archiving removes a thread from the active view and leaves its process
+running. Use **Stop agent** in the conversation to request process retirement.
+If Herdr must preserve its worktree, Control reports that the process remains alive.
 
 The Project list shows archived Threads for 7 days. The full archive screen
-retains restorable Threads for 30 days. Control permanently deletes them after
-that fixed retention period.
+retains Threads and captured messages without automatic expiry, including threads
+without a resume reference. Unarchiving a running Thread reuses its existing Run.
 
 ## Control Hosts
 
@@ -209,7 +226,11 @@ Run the local checks with:
 npm run typecheck
 npm test
 npm run build
+npm run test:browser:mock
 ```
+
+The mock browser suite needs Playwright Chromium (`npx playwright install chromium`)
+and starts its own client. It does not connect to real agents.
 
 The browser compatibility suite controls a real, isolated Herdr pane and
 therefore requires explicit endpoints:

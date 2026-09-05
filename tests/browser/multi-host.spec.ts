@@ -113,7 +113,7 @@ test("opens the mobile task composer through the agent fan", async ({ page }) =>
   }
 });
 
-test("keeps inactive Projects out of the main list and available through New thread", async ({ page }) => {
+test("keeps inactive Projects visible and available through New thread", async ({ page }) => {
   let controlHosts: readonly ControlHost[] = [];
   const home = new FakeBridge(
     "Home MZ",
@@ -129,7 +129,7 @@ test("keeps inactive Projects out of the main list and available through New thr
   try {
     await page.goto(homeUrl);
     await expect(page.getByText("Active project", { exact: true })).toBeVisible();
-    await expect(page.getByText("Dormant project", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Dormant project", { exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: "New thread", exact: true }).click();
     const picker = page.getByRole("dialog", { name: "Choose a project" });
@@ -171,7 +171,11 @@ class FakeBridge {
     if (!this.server.listening) return;
     for (const response of this.responses) response.end();
     this.responses.clear();
-    await new Promise<void>((resolve, reject) => this.server.close((error) => error ? reject(error) : resolve()));
+    await new Promise<void>((resolve, reject) => {
+      this.server.close((error) => error ? reject(error) : resolve());
+      // A browser can reconnect SSE on an existing HTTP connection during teardown.
+      this.server.closeAllConnections();
+    });
   }
 
   private respond(request: IncomingMessage, response: ServerResponse): void {

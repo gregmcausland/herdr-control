@@ -1,15 +1,16 @@
 const PANE_ROUTE = /^\/panes\/([^/]+)\/?$/;
-const THREAD_ROUTE = /^\/threads\/([^/]+)\/?$/;
+const THREAD_ROUTE = /^\/threads\/([^/]+)(\/terminal)?\/?$/;
 const ROUTE_ID = /^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,127}$/;
 
 export interface TerminalRoute {
   kind: "thread" | "pane";
   id: string;
+  terminal?: boolean;
 }
 
 export function terminalRouteFromPath(pathname: string): TerminalRoute | undefined {
   const threadId = decodeRouteId(THREAD_ROUTE.exec(pathname)?.[1]);
-  if (threadId) return { kind: "thread", id: threadId };
+  if (threadId) return { kind: "thread", id: threadId, ...(THREAD_ROUTE.exec(pathname)?.[2] ? { terminal: true } : {}) };
   const paneId = decodeRouteId(PANE_ROUTE.exec(pathname)?.[1]);
   return paneId ? { kind: "pane", id: paneId } : undefined;
 }
@@ -41,4 +42,8 @@ export function searchForHost(hostUrl: string, search = ""): string {
   const params = new URLSearchParams(search);
   params.set("host", hostUrl);
   return `?${params.toString()}`;
+}
+
+export function threadTerminalPath(threadId: string, search = ""): string {
+  return `/threads/${encodeURIComponent(threadId)}/terminal${search}`;
 }

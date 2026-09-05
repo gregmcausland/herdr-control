@@ -36,8 +36,10 @@ Open a repository-backed workspace in Herdr. Return to Control and wait for its
 Project to appear. Choose the plus button beside the Project, select an agent and
 location, optionally add a title and initial message, then create the Thread.
 
-The agent continues under Herdr if the browser closes. Reopen its row to control
-the terminal, or archive it once Herdr has reported a resumable session.
+The agent continues under Herdr if the browser closes. Reopen its row to read
+completed replies and write messages. Install [reply capture](reply-capture.md)
+on its host first. **Open terminal** provides the full agent interface when needed.
+Archiving hides a Thread without stopping its process; **Stop agent** is separate.
 
 ## Useful service commands
 

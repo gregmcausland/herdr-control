@@ -152,6 +152,7 @@ export class HerdrTerminalConnection {
 
   send(message: TerminalClientMessage): void {
     if (this.disposed || !this.child.stdin.writable) return;
+    if (message.type === "ping" || message.type === "view") return;
     if (message.type === "release") {
       void this.release();
       return;
@@ -522,8 +523,11 @@ export class HerdrAdapter {
       let stderr = "";
       child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString("utf8")));
       child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")));
-      child.on("error", reject);
+      const timer = setTimeout(() => { child.kill(); reject(new Error("Timed out waiting for Herdr")); }, 70_000);
+      timer.unref();
+      child.on("error", (error) => { clearTimeout(timer); reject(error); });
       child.on("close", (code) => {
+        clearTimeout(timer);
         if (code === 0) resolve(stdout);
         else reject(new Error(stderr.trim() || `Herdr exited with code ${code}`));
       });

@@ -111,7 +111,11 @@ export function TerminalView({ bridgeUrl, pane, themeId, fontFamily, fontSize, c
     });
     inputRef.current = input;
 
-    const observer = new ResizeObserver(() => fit.fit());
+    let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+    const observer = new ResizeObserver(() => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => fit.fit(), 120);
+    });
     observer.observe(containerRef.current!);
     const followPageVisibility = () => {
       if (document.visibilityState === "hidden") session.suspend();
@@ -119,7 +123,7 @@ export function TerminalView({ bridgeUrl, pane, themeId, fontFamily, fontSize, c
     };
     const releaseOnPageHide = () => session.suspend();
     const reconnectWhenActive = () => {
-      if (!document.hidden && session.getState().phase !== "connected") session.resume();
+      if (!document.hidden) session.resume();
     };
     document.addEventListener("visibilitychange", followPageVisibility);
     document.addEventListener("freeze", releaseOnPageHide);
@@ -141,6 +145,7 @@ export function TerminalView({ bridgeUrl, pane, themeId, fontFamily, fontSize, c
       window.removeEventListener("focus", reconnectWhenActive);
       window.removeEventListener("online", reconnectWhenActive);
       observer.disconnect();
+      clearTimeout(resizeTimer);
       detachViewport();
       input.dispose();
       inputRef.current = undefined;
@@ -163,13 +168,7 @@ export function TerminalView({ bridgeUrl, pane, themeId, fontFamily, fontSize, c
     fitRef.current?.fit();
   }, [cursorBlink, fontFamily, fontSize, themeId]);
 
-  useEffect(() => {
-    if (pane.agent_status !== "done" || sessionState.phase !== "connected" || document.hidden) return;
-    sessionRef.current?.send({ type: "view" });
-  }, [pane.agent_status, sessionState.phase]);
-
   const inputActive = sessionState.phase === "connected" && sessionState.mode === "control";
-  const messageAvailable = Boolean(pane.thread_id);
   const paneLabel = pane.terminal_title_stripped ?? pane.label ?? pane.pane_id;
   const working = pane.agent_status === "working";
 
@@ -207,23 +206,10 @@ export function TerminalView({ bridgeUrl, pane, themeId, fontFamily, fontSize, c
       </div>
       <MobileTerminalControls
         terminalActive={inputActive}
-        messageAvailable={messageAvailable}
         paneLabel={paneLabel}
         onFocusTerminal={() => inputRef.current?.focus()}
         onKey={(data) => inputRef.current?.sendKey(data) ?? false}
-        onSendMessage={async (text) => {
-          if (!pane.thread_id) throw new Error("No active Thread");
-          const response = await fetch(
-            `${bridgeUrl}/api/threads/${encodeURIComponent(pane.thread_id)}/messages`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ text }),
-            },
-          );
-          const body = await response.json().catch(() => undefined) as { error?: string } | undefined;
-          if (!response.ok) throw new Error(body?.error ?? `Request failed with status ${response.status}`);
-        }}
+
       />
       {sessionState.phase === "occupied" && (
         <div className="terminal-overlay">

@@ -94,12 +94,12 @@ describe("multi-host Project projection", () => {
     expect(groups[0].feedStatus).toBe("stale");
   });
 
-  it("hides an empty Project from the main projection but keeps it in the creation inventory", () => {
+  it("keeps empty Projects visible and available for creation", () => {
     const current = snapshot(project("Active"), pane("server"));
     current.projects!.push({ ...project("Dormant"), project_id: "dormant-project" });
     const feeds = [feed(serverMz, { snapshot: current })];
 
-    expect(projectsAcrossHosts(feeds).map(({ label }) => label)).toEqual(["Active"]);
+    expect(projectsAcrossHosts(feeds).map(({ label }) => label)).toEqual(["Active", "Dormant"]);
     expect(availableProjectsAcrossHosts(feeds).map(({ project: item }) => item.name)).toEqual([
       "Active",
       "Dormant",
