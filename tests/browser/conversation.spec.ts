@@ -17,11 +17,15 @@ async function fixture(page: Page) {
   // Route fixtures return finite SSE bodies; keep the simulated feed open.
   await page.addInitScript(() => {
     const NativeEventSource = window.EventSource;
+    (window as any).testFeeds = [];
     window.EventSource = class extends NativeEventSource {
+      constructor(url: string | URL) { super(url); (window as any).testFeeds.push(this); }
       set onerror(_listener: unknown) {}
       get onerror() { return null; }
     } as typeof EventSource;
   });
+  const currentThread = structuredClone(thread);
+  const currentSnapshot = { ...snapshot, threads: [currentThread] };
   const messages: any[] = [{ message_id: "reply-1", sequence: 1, thread_id: thread.thread_id, role: "assistant", source: "agent", created_at: new Date().toISOString(), text: "## Ready to review\n\nThe reconnect fix is ready.\n\n- Drafts survive navigation.\n- [Read the docs](https://example.com).\n\n<script>window.injected = true</script>" }];
   const submissions: any[] = [];
   const sockets: string[] = [];
@@ -29,8 +33,8 @@ async function fixture(page: Page) {
   let loseAcknowledgement = false;
   await page.route("**/api/control-hosts", (route) => route.fulfill({ json: { hosts: [] } }));
   await page.route("**/api/agents", (route) => route.fulfill({ json: { agents: ["codex"] } }));
-  await page.route("**/api/session/events", (route) => route.fulfill({ contentType: "text/event-stream", body: `data: ${JSON.stringify({ status: offline ? "stale" : "live", revision: 1, snapshot })}\n\n` }));
-  await page.route("**/api/threads/thread-1/conversation*", (route) => offline ? route.abort() : route.fulfill({ json: { thread, messages, capture_available: true, has_older: false } }));
+  await page.route("**/api/session/events", (route) => route.fulfill({ contentType: "text/event-stream", body: `data: ${JSON.stringify({ status: offline ? "stale" : "live", revision: 1, snapshot: currentSnapshot })}\n\n` }));
+  await page.route("**/api/threads/thread-1/conversation*", (route) => offline ? route.abort() : route.fulfill({ json: { thread: currentThread, messages, capture_available: true, has_older: false } }));
   await page.route("**/api/threads/thread-1/messages", async (route) => {
     const input = route.request().postDataJSON();
     submissions.push(input);
@@ -51,7 +55,15 @@ async function fixture(page: Page) {
     });
     socket.send(JSON.stringify({ type: "ready", mode: "control" }));
   });
-  return { messages, submissions, sockets, offline: (value: boolean) => { offline = value; }, loseAcknowledgement: () => { loseAcknowledgement = true; } };
+  return { messages, submissions, sockets, offline: (value: boolean) => { offline = value; }, loseAcknowledgement: () => { loseAcknowledgement = true; },
+    status: async (status: string, feedStatus = "live") => {
+      currentThread.current_run.agent_status = status;
+      Object.assign(currentThread.current_run, { working_started_at: new Date(Date.now() - 125_000).toISOString() });
+      await page.evaluate(data => {
+        for (const source of (window as any).testFeeds) source.dispatchEvent(new MessageEvent("message", { data }));
+      }, JSON.stringify({ status: feedStatus, revision: 2, snapshot: currentSnapshot }));
+    },
+  };
 }
 
 async function open(page: Page) {
@@ -134,5 +146,66 @@ test("keeps cached replies and drafts readable while the host is unavailable", a
   state.offline(false);
   await page.evaluate(() => window.dispatchEvent(new Event("online")));
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+  expect(state.sockets).toHaveLength(0);
+});
+
+test("animates live work beside the composer and settles when work finishes or disconnects", async ({ page }, testInfo) => {
+  test.skip(!client, "Browser client required");
+  await page.setViewportSize({ width: 390, height: 844 });
+  const state = await fixture(page);
+  state.messages.unshift({ message_id: "prompt", sequence: 0, thread_id: thread.thread_id, role: "user", source: "control", delivery: "acknowledged", created_at: new Date().toISOString(), text: "Make reconnecting feel seamless on my phone. Keep the draft and bring me back to where I was reading." });
+  state.messages[1].text = "## Ready to review\n\nThe reconnect fix is ready. Your draft stays with you when you switch apps or reload.\n\n- Return to the same reading position.\n- Reconnect without taking over the terminal.\n\nI’m checking the keyboard behaviour next.";
+  await open(page);
+  await state.status("working");
+  const working = page.locator(".conversation-working");
+  const canvas = working.locator("canvas");
+  await expect(working.getByRole("status")).toHaveText("Codex is working");
+  await expect(working.getByLabel("Time working")).toContainText("2m");
+  const frame = () => canvas.evaluate((el: HTMLCanvasElement) => el.toDataURL());
+  const first = await frame();
+  await expect.poll(frame).not.toBe(first);
+  await page.screenshot({ path: testInfo.outputPath("chat-working-mobile.png") });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.screenshot({ path: testInfo.outputPath("chat-working-desktop.png") });
+  await page.evaluate(() => localStorage.setItem("herdr-control-settings", JSON.stringify({ theme: "catppuccinLatte" })));
+  await page.reload();
+  await expect(working).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("chat-working-light.png") });
+  await page.setViewportSize({ width: 320, height: 700 });
+  expect(await working.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeInViewport();
+  await page.getByRole("button", { name: "Thread actions" }).click();
+  await expect(page.getByRole("button", { name: "Stop agent", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Thread actions" }).click();
+  await expect(page.getByRole("button", { name: "Stop agent", exact: true })).toHaveCount(0);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(working.locator(".conversation-working-beacon")).toHaveCSS("animation-name", "none");
+  // Let the single reduced-motion frame paint before comparing frames.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const still = await frame();
+  await page.waitForTimeout(150);
+  expect(await frame()).toBe(still);
+  state.messages.push({ ...state.messages[1], message_id: "long-reply", sequence: 2, text: "A longer explanation.\n\n".repeat(30) });
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect(page.locator(".conversation-message")).toHaveCount(3);
+  await page.locator(".conversation-reader").evaluate(el => { el.scrollTop = 0; });
+  await expect(page.getByRole("button", { name: /Jump to latest/ })).toBeVisible();
+  await expect(working).toBeInViewport();
+  await page.getByRole("textbox", { name: "Message", exact: true }).fill("Keep this draft while you work");
+  await page.setViewportSize({ width: 390, height: 430 });
+  await expect(working).toBeInViewport();
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeInViewport();
+  expect(await page.locator(".conversation-reader").evaluate(el => el.clientHeight)).toBeGreaterThan(80);
+  expect(await page.locator(".conversation-reader").evaluate(el => el.scrollTop)).toBe(0);
+  await page.getByRole("button", { name: /Jump to latest/ }).click();
+  await expect.poll(() => page.locator(".conversation-reader").evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(2);
+  await page.screenshot({ path: testInfo.outputPath("chat-working-keyboard.png") });
+  await state.status("working", "stale");
+  await expect(working).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+  await state.status("done");
+  await expect(working).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveValue("Keep this draft while you work");
+  expect(state.submissions).toHaveLength(0);
   expect(state.sockets).toHaveLength(0);
 });

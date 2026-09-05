@@ -155,6 +155,7 @@ export function App() {
       hostUrl={terminalSelection.hostUrl}
       hostLabel={feed?.host.label ?? "Host"}
       threadId={terminalSelection.route.id}
+      themeId={settings.theme}
       liveThread={feed?.snapshot?.threads?.find((thread) => thread.thread_id === terminalSelection.route.id)}
       feedStatus={feed?.status ?? "connecting"}
       onHome={control.returnHome}
