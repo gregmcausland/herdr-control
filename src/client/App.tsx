@@ -164,7 +164,7 @@ export function App() {
     />;
   }
 
-  if (activePane) {
+  if (activePane && !terminalSelection?.awaitingThread) {
     return (
       <Suspense fallback={<p className="notice">Opening terminal…</p>}><TerminalView
         bridgeUrl={terminalSelection!.hostUrl}
@@ -181,7 +181,7 @@ export function App() {
   }
 
   if (terminalSelection) {
-    return <main className="shell"><button className="secondary" onClick={control.returnHome}>Home</button><p className="notice" role="status">Waiting for Herdr to report this agent or terminal…</p></main>;
+    return <main className="shell"><button className="secondary" onClick={control.returnHome}>Home</button><p className="notice" role="status">{terminalSelection.awaitingThread ? "Opening your conversation…" : "Waiting for Herdr to report this agent or terminal…"}</p></main>;
   }
 
   return (

@@ -82,15 +82,15 @@ test("opens the mobile task composer through the agent fan", async ({ page }) =>
     await launcher.getByRole("button", { name: "Pi", exact: true }).click();
 
     const composer = page.getByRole("dialog", { name: "New thread" });
-    await expect(composer.getByText("Mobile project", { exact: true })).toBeVisible();
-    await expect(composer.getByLabel("What should Pi work on?")).toBeFocused();
+    await expect(composer.getByText("Mobile project · Mobile MZ", { exact: true })).toBeVisible();
+    await expect(composer.locator('input[value="project"]')).toBeFocused();
     await expect(composer.getByRole("button", { name: "Go back" })).toBeVisible();
     await expect(composer).toHaveCSS("border-radius", "0px");
     expect(await composer.boundingBox()).toEqual({ x: 0, y: 0, width: 390, height: 844 });
-    await expect(composer.getByRole("button", { name: /Pi · Project default/ })).toHaveAttribute("aria-expanded", "false");
+    await expect(composer.getByRole("button", { name: /Agent settings/ })).toHaveAttribute("aria-expanded", "false");
     await expect(composer.getByLabel("Agent")).toHaveCount(0);
 
-    await composer.getByRole("button", { name: /Pi · Project default/ }).click();
+    await composer.getByRole("button", { name: /Agent settings/ }).click();
     await expect(composer.getByRole("combobox", { name: /Agent/ })).toHaveValue("pi");
 
     await composer.getByRole("button", { name: "Go back" }).click();

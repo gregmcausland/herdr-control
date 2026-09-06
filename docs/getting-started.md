@@ -37,11 +37,17 @@ in the header or **All projects** below the active list, then select the Project
 Empty Projects remain in this picker even though they do not occupy a section
 on home. Projects with open panes also have a plus button beside their heading.
 
-Choose an available agent and write an optional initial task. Expand **Options**
-to change the agent, title, checkout, or permissions. Select **Start Thread**.
-Control waits for Herdr to detect the agent and explicitly report it ready
-before sending the initial task. During launch, the form prevents duplicate
-submissions. A launch error keeps the form and draft available.
+Choose an available agent, then pick the project checkout, an existing worktree,
+or **New worktree**. Existing worktrees show their branch and path. A new worktree
+can use a new or existing branch name; leaving it blank lets Herdr generate one.
+Use **Open another checkout** for a worktree known by its path. Agent and
+permission settings remain under **Agent settings**.
+
+Select **Start Thread** to open the conversation without a title or initial
+prompt. Control waits for the agent to be ready, then opens the conversation
+without acquiring its terminal. Write or dictate your first message there.
+During launch, the form prevents duplicate submissions. Errors preserve your
+checkout choices.
 
 The agent continues under Herdr if the browser closes. Reopen its row to read
 completed replies and write messages. Install [reply capture](reply-capture.md)

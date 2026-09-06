@@ -108,7 +108,8 @@ treated as ready. Unexpected field types still fail validation.
 
 `tests/browser/new-thread-launch.spec.ts` exercises this transition through the
 real HTTP handler, lifecycle, adapter, and parser with only the Herdr transport
-substituted. It verifies that the initial prompt is sent once, after readiness.
+substituted. It verifies an unprompted launch, followed by the first message
+sent from the conversation after readiness.
 Use a disposable session for any subsequent live launch validation.
 
 The following Herdr error codes currently drive behavior and must remain

@@ -66,10 +66,11 @@ test("starts a thread through Control while Herdr is still detecting the agent",
     }
     throw new Error(`Unexpected Herdr request: ${method}`);
   });
+  herdr.snapshot = async () => state.snapshot!;
   const allowedOrigins = new Set<string>();
   const server = createControlServer({
     host: "127.0.0.1", port: 0, herdrBinary: "/fixture/no-herdr", herdrSocketPath: "/fixture/no-socket",
-    statePath: ":memory:", allowedOrigins,
+    statePath: ":memory:", allowedOrigins, openaiApiKey: "fixture-not-used",
   }, herdr, session, threads, undefined, async () => ["codex"]);
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -84,7 +85,7 @@ test("starts a thread through Control while Herdr is still detecting the agent",
     await page.getByRole("dialog", { name: "Choose a project" }).getByRole("button", { name: /Phone project/ }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Codex", exact: true }).click();
     const form = page.getByRole("dialog", { name: "New thread", exact: true });
-    await form.getByLabel("What should Codex work on?").fill("Test");
+    await expect(form.locator("textarea")).toHaveCount(0);
     const responsePromise = page.waitForResponse(response => response.request().method() === "POST");
     await form.getByRole("button", { name: "Start Thread" }).click();
     const response = await responsePromise;
@@ -97,9 +98,15 @@ test("starts a thread through Control while Herdr is still detecting the agent",
     await expect(page.getByRole("button", { name: "Open terminal", exact: true })).toBeEnabled();
     await page.screenshot({ path: testInfo.outputPath("conversation-opened.png") });
     expect(calls.map(call => call.method)).toEqual([
-      "tab.create", "pane.rename", "agent.start", "agent.get", "agent.get", "pane.report_metadata", "agent.prompt",
+      "tab.create", "agent.start", "agent.get", "agent.get", "pane.report_metadata",
     ]);
-    expect(calls.at(-1)?.params).toEqual({ target: "w1:p2", text: "Test" });
+    await expect(page.getByRole("button", { name: "Dictate message" })).toBeVisible();
+    await page.getByRole("button", { name: "Type a message", exact: true }).click();
+    await page.getByRole("textbox", { name: "Message", exact: true }).fill("My first message comes from the conversation");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(page.locator(".conversation-message.user")).toContainText("My first message comes from the conversation");
+    await expect.poll(() => calls.filter(call => call.method === "agent.prompt").length).toBe(1);
+    expect(calls.find(call => call.method === "agent.prompt")?.params).toEqual({ target: "w1:p2", text: "My first message comes from the conversation" });
     expect(browserErrors).toEqual([]);
   } finally {
     await page.close();

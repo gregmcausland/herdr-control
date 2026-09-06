@@ -45,6 +45,7 @@ export type CreationTarget = {
 export type TerminalSelection = {
   hostUrl: string;
   route: TerminalRoute;
+  awaitingThread?: boolean;
 };
 
 export interface OrchestrationState {
@@ -291,7 +292,7 @@ export function useControlOrchestration() {
         const paneId = body.thread.pane_id;
         // A launch is acknowledged before the feed necessarily adopts its Thread.
         window.history.pushState(null, "", panePath(paneId, searchForHost(target.host.url, window.location.search)));
-        dispatch({ type: "terminal.opened", selection: { hostUrl: target.host.url, route: { kind: "pane", id: paneId } } });
+        dispatch({ type: "terminal.opened", selection: { hostUrl: target.host.url, route: { kind: "pane", id: paneId }, awaitingThread: true } });
       }
     } catch (error) {
       dispatch({

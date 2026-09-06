@@ -1,10 +1,5 @@
 import { useId, useRef, useState, type FormEvent } from "react";
-import type {
-  ProjectInfo,
-  ThreadCreationLocation,
-  ThreadCreationRequest,
-  WorktreeInfo,
-} from "../shared/protocol";
+import type { ProjectInfo, ThreadCreationLocation, ThreadCreationRequest, WorktreeInfo } from "../shared/protocol";
 import { AGENT_KINDS, type AgentDefinition } from "../shared/agents";
 import { TaskSurface } from "./Surface";
 import type { ThemeId } from "./theme";
@@ -35,19 +30,19 @@ export function ThreadCreationDialog({
   onCancel(): void;
   onCreate(request: ThreadCreationRequest): void;
 }) {
-  const [agent, setAgent] = useState<string>(() => availableAgents.find(option => option.kind === defaultAgent)?.kind ?? availableAgents[0]?.kind ?? "");
+  const [agent, setAgent] = useState<string>(
+    () => availableAgents.find((option) => option.kind === defaultAgent)?.kind ?? availableAgents[0]?.kind ?? "",
+  );
   const [skipPermissions, setSkipPermissions] = useState(defaultSkipPermissions);
-  const [title, setTitle] = useState("");
-  const [prompt, setPrompt] = useState("");
   const [locationChoice, setLocationChoice] = useState("project");
   const [branch, setBranch] = useState("");
   const [base, setBase] = useState("");
   const [path, setPath] = useState("");
   const [worktreeLabel, setWorktreeLabel] = useState("");
   const [optionsOpen, setOptionsOpen] = useState(false);
-  const promptRef = useRef<HTMLTextAreaElement>(null);
+  const checkoutRef = useRef<HTMLInputElement>(null);
   const optionsId = useId();
-  const selectedAgent = availableAgents.find(option => option.kind === agent);
+  const selectedAgent = availableAgents.find((option) => option.kind === agent);
   const missingPath = locationChoice === "open_worktree" && !path.trim();
   const canSubmit = !pending && Boolean(selectedAgent) && !missingPath;
 
@@ -57,39 +52,41 @@ export function ThreadCreationDialog({
     const location = creationLocation(locationChoice, { branch, base, path, label: worktreeLabel });
     onCreate({
       agent: agent.trim(),
-      title: title.trim() || undefined,
-      prompt: prompt.trim() || undefined,
-      skip_permissions: skipPermissions && AGENT_KINDS.some((option) => option.kind === agent.trim()) || undefined,
+      skip_permissions: (skipPermissions && AGENT_KINDS.some((option) => option.kind === agent.trim())) || undefined,
       location,
     });
   }
 
   const creatingWorktree = locationChoice === "create_worktree";
   const openingWorktree = locationChoice === "open_worktree";
-  const locationLabel = locationChoice === "project"
-    ? "Project default"
-    : locationChoice === "create_worktree"
-      ? "New Worktree"
-      : locationChoice === "open_worktree"
-        ? "Existing Worktree"
-        : worktrees.find((worktree) => `worktree:${worktree.worktree_id}` === locationChoice)?.label ?? "Worktree";
+  const projectCheckout = worktrees.find((worktree) => worktree.checkout_path === project.repo_root);
+  const otherWorktrees = worktrees.filter((worktree) => worktree.checkout_path !== project.repo_root);
+  const branchesId = useId();
 
   return (
     <TaskSurface
       title="New thread"
-      context={project.name}
-      description={hostLabel}
-      className="creation-dialog"
+      description={`${project.name} · ${hostLabel}`}
+      className="creation-dialog preferences-screen"
       fitViewport
       busy={pending}
       activity={pending ? <WorkingActivity themeId={themeId} /> : undefined}
-      initialFocusRef={promptRef}
+      initialFocusRef={checkoutRef}
       onClose={onCancel}
       onSubmit={submit}
       actions={
         <>
-          {(error || missingPath || !selectedAgent) && <p className="surface-error creation-feedback" role="status">{error || (missingPath ? "Enter a checkout path in Options to continue." : "No available agent. Reopen this form when the host is connected.")}</p>}
-          <button className="surface-button secondary" type="button" disabled={pending} onClick={onCancel}>Cancel</button>
+          {(error || missingPath || !selectedAgent) && (
+            <p className="surface-error creation-feedback" role="status">
+              {error ||
+                (missingPath
+                  ? "Enter a checkout path to continue."
+                  : "No available agent. Reopen this form when the host is connected.")}
+            </p>
+          )}
+          <button className="surface-button secondary" type="button" disabled={pending} onClick={onCancel}>
+            Cancel
+          </button>
           <button className="surface-button primary" type="submit" disabled={!canSubmit}>
             {pending ? "Starting…" : "Start Thread"}
           </button>
@@ -97,22 +94,141 @@ export function ThreadCreationDialog({
       }
     >
       <fieldset className="creation-form-fields" disabled={pending}>
-        <label className="quick-thread-prompt">
-          <span>What should {selectedAgent?.label ?? agent} work on?</span>
-          <textarea
-            ref={promptRef}
-            value={prompt}
-            rows={7}
-            placeholder="Describe the task…"
-            onChange={(event) => setPrompt(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.nativeEvent.isComposing && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
-              }
-            }}
-          />
-        </label>
+        <fieldset className="checkout-picker">
+          <legend>Where should this thread work?</legend>
+          <label className={`checkout-choice ${locationChoice === "project" ? "selected" : ""}`}>
+            <input
+              ref={checkoutRef}
+              type="radio"
+              name="checkout"
+              value="project"
+              checked={locationChoice === "project"}
+              onChange={(event) => setLocationChoice(event.target.value)}
+            />
+            <span>
+              <strong>{projectCheckout?.branch ?? "Project checkout"}</strong>
+              <small>{projectCheckout?.branch ? "Project checkout" : "Use the project’s existing files"}</small>
+              <span className="checkout-path">{project.repo_root}</span>
+            </span>
+          </label>
+          {otherWorktrees.map((worktree) => (
+            <label
+              className={`checkout-choice ${locationChoice === `worktree:${worktree.worktree_id}` ? "selected" : ""}`}
+              key={worktree.worktree_id}
+            >
+              <input
+                type="radio"
+                name="checkout"
+                value={`worktree:${worktree.worktree_id}`}
+                checked={locationChoice === `worktree:${worktree.worktree_id}`}
+                onChange={(event) => setLocationChoice(event.target.value)}
+              />
+              <span>
+                <strong title={worktree.branch ?? worktree.label}>{worktree.branch ?? worktree.label}</strong>
+                <small>Existing worktree</small>
+                <span className="checkout-path" title={worktree.checkout_path}>
+                  {worktree.checkout_path}
+                </span>
+              </span>
+            </label>
+          ))}
+          <label className={`checkout-choice ${creatingWorktree ? "selected" : ""}`}>
+            <input
+              type="radio"
+              name="checkout"
+              value="create_worktree"
+              checked={creatingWorktree}
+              onChange={(event) => setLocationChoice(event.target.value)}
+            />
+            <span>
+              <strong>New worktree</strong>
+              <small>A separate checkout for this thread</small>
+            </span>
+          </label>
+          {creatingWorktree && (
+            <div className="creation-fields checkout-details">
+              <label>
+                <span>
+                  Branch <small>Optional</small>
+                </span>
+                <input
+                  value={branch}
+                  list={branchesId}
+                  placeholder="New or existing branch name"
+                  onChange={(event) => setBranch(event.target.value)}
+                />
+              </label>
+              <datalist id={branchesId}>
+                {[...new Set(worktrees.flatMap((worktree) => (worktree.branch ? [worktree.branch] : [])))].map(
+                  (name) => (
+                    <option value={name} key={name} />
+                  ),
+                )}
+              </datalist>
+              <p className="checkout-help">
+                Leave blank to generate a branch. To use a branch already checked out, select its worktree above.
+              </p>
+              <label>
+                <span>
+                  Start from <small>Optional</small>
+                </span>
+                <input
+                  value={base}
+                  list={branchesId}
+                  placeholder="Current HEAD"
+                  onChange={(event) => setBase(event.target.value)}
+                />
+              </label>
+              <details className="checkout-advanced">
+                <summary>Custom path and label</summary>
+                <div className="creation-subfields">
+                  <label>
+                    <span>
+                      Checkout path <small>Optional</small>
+                    </span>
+                    <input
+                      value={path}
+                      placeholder="Managed by Herdr"
+                      onChange={(event) => setPath(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>
+                      Label <small>Optional</small>
+                    </span>
+                    <input value={worktreeLabel} onChange={(event) => setWorktreeLabel(event.target.value)} />
+                  </label>
+                </div>
+              </details>
+            </div>
+          )}
+          <label className={`checkout-choice ${openingWorktree ? "selected" : ""}`}>
+            <input
+              type="radio"
+              name="checkout"
+              value="open_worktree"
+              checked={openingWorktree}
+              onChange={(event) => setLocationChoice(event.target.value)}
+            />
+            <span>
+              <strong>Open another checkout</strong>
+              <small>Use an existing worktree by path</small>
+            </span>
+          </label>
+          {openingWorktree && (
+            <div className="creation-fields checkout-details">
+              <label>
+                <span>Checkout path</span>
+                <input
+                  value={path}
+                  required
+                  placeholder="/path/to/worktree"
+                  onChange={(event) => setPath(event.target.value)}
+                />
+              </label>
+            </div>
+          )}
+        </fieldset>
 
         <button
           className="thread-options-summary secondary"
@@ -121,16 +237,23 @@ export function ThreadCreationDialog({
           aria-controls={optionsId}
           onClick={() => setOptionsOpen((open) => !open)}
         >
-          <span>{selectedAgent?.label ?? agent} · {locationLabel}{skipPermissions ? " · permissions skipped" : ""}</span>
-          <strong>{optionsOpen ? "Hide options" : "Options"}</strong>
+          <span>
+            {selectedAgent?.label ?? agent}
+            {skipPermissions ? " · permissions skipped" : ""}
+          </span>
+          <strong>{optionsOpen ? "Hide agent settings" : "Agent settings"}</strong>
         </button>
 
         {optionsOpen && (
           <div className="creation-fields quick-thread-options" id={optionsId}>
             <label>
               <span>Agent</span>
-              <select value={agent} required onChange={event => setAgent(event.target.value)}>
-                {availableAgents.map(option => <option key={option.kind} value={option.kind}>{option.label}</option>)}
+              <select value={agent} required onChange={(event) => setAgent(event.target.value)}>
+                {availableAgents.map((option) => (
+                  <option key={option.kind} value={option.kind}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             </label>
 
@@ -148,68 +271,8 @@ export function ThreadCreationDialog({
                 </small>
               </span>
             </label>
-
-            <label>
-              <span>Title <small>Optional</small></span>
-              <input
-                value={title}
-                maxLength={200}
-                placeholder="Derived from the first message"
-                onChange={(event) => setTitle(event.target.value)}
-              />
-            </label>
-
-            <label>
-              <span>Location</span>
-              <select value={locationChoice} onChange={(event) => setLocationChoice(event.target.value)}>
-                <option value="project">Project default</option>
-                {worktrees.map((worktree) => (
-                  <option value={`worktree:${worktree.worktree_id}`} key={worktree.worktree_id}>
-                    {worktree.branch ?? worktree.label} — {worktree.checkout_path}
-                  </option>
-                ))}
-                <option value="create_worktree">Create a Worktree…</option>
-                <option value="open_worktree">Open an existing Worktree…</option>
-              </select>
-            </label>
-
-            {creatingWorktree && (
-              <div className="creation-subfields">
-                <label>
-                  <span>Branch <small>Optional</small></span>
-                  <input value={branch} placeholder="Herdr can generate one" onChange={(event) => setBranch(event.target.value)} />
-                </label>
-                <label>
-                  <span>Base <small>Optional</small></span>
-                  <input value={base} placeholder="Current HEAD" onChange={(event) => setBase(event.target.value)} />
-                </label>
-                <label>
-                  <span>Checkout path <small>Optional</small></span>
-                  <input value={path} placeholder="Managed by Herdr" onChange={(event) => setPath(event.target.value)} />
-                </label>
-                <label>
-                  <span>Label <small>Optional</small></span>
-                  <input value={worktreeLabel} onChange={(event) => setWorktreeLabel(event.target.value)} />
-                </label>
-              </div>
-            )}
-
-            {openingWorktree && (
-              <div className="creation-subfields">
-                <label>
-                  <span>Checkout path</span>
-                  <input value={path} required placeholder="/path/to/worktree" onChange={(event) => setPath(event.target.value)} />
-                </label>
-                <label>
-                  <span>Label <small>Optional</small></span>
-                  <input value={worktreeLabel} onChange={(event) => setWorktreeLabel(event.target.value)} />
-                </label>
-              </div>
-            )}
-
           </div>
         )}
-
       </fieldset>
     </TaskSurface>
   );
