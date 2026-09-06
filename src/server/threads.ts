@@ -67,6 +67,7 @@ interface ProjectRow {
 
 interface WorktreeRow {
   worktree_id: string;
+  purpose_label: string | null;
   project_id: string;
   checkout_path: string;
   label: string;
@@ -343,8 +344,10 @@ export class ThreadManager {
 
   listWorktrees(): WorktreeInfo[] {
     const rows = this.database.prepare(`
-      SELECT worktrees.*, worktree_runtimes.workspace_id AS runtime_workspace_id
+      SELECT worktrees.*, worktree_runtimes.workspace_id AS runtime_workspace_id,
+        worktree_names.label AS purpose_label
       FROM worktrees
+      LEFT JOIN worktree_names ON worktree_names.worktree_id = worktrees.worktree_id
       LEFT JOIN worktree_runtimes
         ON worktree_runtimes.worktree_id = worktrees.worktree_id
         AND worktree_runtimes.ended_at IS NULL
@@ -352,6 +355,7 @@ export class ThreadManager {
     `).all() as unknown as WorktreeRow[];
     return rows.map((row) => ({
       worktree_id: row.worktree_id,
+      purpose_label: row.purpose_label ?? undefined,
       project_id: row.project_id,
       label: row.label,
       checkout_path: row.checkout_path,
@@ -370,6 +374,25 @@ export class ThreadManager {
 
   getWorktree(worktreeId: string): WorktreeInfo | undefined {
     return this.listWorktrees().find((worktree) => worktree.worktree_id === worktreeId);
+  }
+
+  registerWorktreeNaming(agentName: string): void {
+    this.database.prepare("INSERT OR IGNORE INTO worktree_names (agent_name) VALUES (?)").run(agentName);
+  }
+
+  /** Claim before inference, retaining failed attempts to avoid repeated subscription use. */
+  claimWorktreeNaming(threadId: string): WorktreeInfo | undefined {
+    const thread = this.getThread(threadId);
+    const worktree = thread?.worktree_id ? this.getWorktree(thread.worktree_id) : undefined;
+    if (!thread?.agent_name || !worktree?.is_linked_worktree || worktree.removed_at) return;
+    const result = this.database.prepare(`UPDATE worktree_names SET worktree_id = ?, attempted = 1
+      WHERE agent_name = ? AND attempted = 0`).run(worktree.worktree_id, thread.agent_name);
+    return result.changes ? worktree : undefined;
+  }
+
+  completeWorktreeNaming(worktreeId: string, label: string): void {
+    this.database.prepare("UPDATE worktree_names SET label = ? WHERE worktree_id = ? AND label IS NULL")
+      .run(label, worktreeId);
   }
 
   async archive(threadId: string): Promise<ThreadInfo> {
@@ -727,6 +750,13 @@ export class ThreadManager {
 
       CREATE UNIQUE INDEX IF NOT EXISTS worktree_runtimes_one_active_worktree
       ON worktree_runtimes(worktree_id) WHERE ended_at IS NULL;
+
+      CREATE TABLE IF NOT EXISTS worktree_names (
+        agent_name TEXT PRIMARY KEY,
+        worktree_id TEXT UNIQUE REFERENCES worktrees(worktree_id),
+        attempted INTEGER NOT NULL DEFAULT 0,
+        label TEXT
+      );
 
       CREATE TABLE IF NOT EXISTS threads (
         thread_id TEXT PRIMARY KEY,

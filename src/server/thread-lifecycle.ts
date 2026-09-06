@@ -6,6 +6,7 @@ import type {
 } from "../shared/protocol.js";
 import type { HerdrAdapter } from "./herdr.js";
 import { ThreadNotFoundError, type ThreadManager } from "./threads.js";
+import type { WorktreeNamingService } from "./worktree-naming.js";
 
 export class ProjectNotFoundError extends Error {}
 export class WorktreeNotFoundError extends Error {}
@@ -34,6 +35,7 @@ export class ThreadLifecycleService {
     private readonly threads: ThreadLifecycleStore,
     private readonly herdr: ThreadLifecycleHerdr,
     private readonly requestRefresh: () => void = () => undefined,
+    private readonly naming?: Pick<WorktreeNamingService, "created" | "prompted">,
   ) {}
 
   async create(projectId: string, creation: ThreadCreationRequest): Promise<ThreadCreationResult> {
@@ -64,6 +66,7 @@ export class ThreadLifecycleService {
       worktree: selectedWorktree,
       creation,
     });
+    this.naming?.created(creation, result);
     this.requestRefresh();
     return result;
   }
@@ -103,6 +106,7 @@ export class ThreadLifecycleService {
       throw new ThreadNotPromptableError("The agent changed or stopped. Refresh the Thread before sending.");
     }
     await this.herdr.promptThread(pane.pane_id, text);
+    this.naming?.prompted(threadId, text);
     this.requestRefresh();
   }
 

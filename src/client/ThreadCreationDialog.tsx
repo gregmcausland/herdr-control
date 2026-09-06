@@ -124,8 +124,10 @@ export function ThreadCreationDialog({
                 onChange={(event) => setLocationChoice(event.target.value)}
               />
               <span>
-                <strong title={worktree.branch ?? worktree.label}>{worktree.branch ?? worktree.label}</strong>
-                <small>Existing worktree</small>
+                <strong title={worktree.purpose_label ?? worktree.branch ?? worktree.label}>
+                  {worktree.purpose_label ?? worktree.branch ?? worktree.label}
+                </strong>
+                <small title={worktree.branch}>{worktree.purpose_label ? worktree.branch ?? "Existing worktree" : "Existing worktree"}</small>
                 <span className="checkout-path" title={worktree.checkout_path}>
                   {worktree.checkout_path}
                 </span>

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { MAX_AUDIO_BYTES, TranscriptionError, TranscriptionService } from "./transcription.js";
 import { ConversationStore } from "./conversations.js";
+import { WorktreeNamingService } from "./worktree-naming.js";
 import { collectReplies } from "./capture.js";
 import { MessageDeliveryService, MessageConflictError } from "./message-delivery.js";
 import { createReadStream, existsSync, statSync } from "node:fs";
@@ -85,10 +86,12 @@ export function createControlServer(
     50,
     (snapshot) => threads.reconcile(snapshot),
   );
+  const naming = new WorktreeNamingService(threads, herdr, config.namingConfigPath, () => session.requestRefresh?.());
   const threadLifecycle = new ThreadLifecycleService(
     threads,
     herdr,
     () => session.requestRefresh?.(),
+    naming,
   );
   const conversations = new ConversationStore(config.statePath);
   const capture = config.statePath === ":memory:" ? undefined : collectReplies(
@@ -423,7 +426,7 @@ export function createControlServer(
 
   server.on("close", () => {
     session.close();
-    void (capture?.close() ?? Promise.resolve()).then(() => { conversations.close(); threads.close(); hosts.close(); });
+    void Promise.all([capture?.close(), naming.close()]).then(() => { conversations.close(); threads.close(); hosts.close(); });
   });
 
   return server;

@@ -176,6 +176,7 @@ export interface ProjectInfo {
 
 export interface WorktreeInfo {
   worktree_id: string;
+  purpose_label?: string;
   project_id: string;
   label: string;
   checkout_path: string;

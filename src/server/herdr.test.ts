@@ -67,6 +67,16 @@ describe("archived pane retirement", () => {
 });
 
 describe("Thread messages", () => {
+  it("renames a workspace through the imperative Herdr command", async () => {
+    const calls: unknown[] = [];
+    const herdr = new HerdrAdapter("herdr", "/tmp/herdr.sock", async (_socket, method, params) => {
+      calls.push({ method, params });
+      return { result: { type: "workspace_info" } };
+    });
+    await herdr.renameWorkspace("w1", "Improve voice input");
+    expect(calls).toEqual([{ method: "workspace.rename", params: { workspace_id: "w1", label: "Improve voice input" } }]);
+  });
+
   it("uses Herdr's acknowledged agent prompt command", async () => {
     const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
     const herdr = new HerdrAdapter("herdr", "/tmp/herdr.sock", async (_socket, method, params) => {

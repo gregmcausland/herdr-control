@@ -88,7 +88,7 @@ arrive, or repeated reconnecting despite Herdr remaining healthy.
 Control currently uses these socket methods:
 
 - `pane.focus`, `pane.close`, `pane.rename`, `pane.report_metadata`, and `pane.send_keys`
-- `workspace.create`
+- `workspace.create` and `workspace.rename`
 - `tab.create` and `tab.rename`
 - `worktree.create` and `worktree.open`
 - `agent.start`, `agent.get`, and `agent.prompt`
@@ -162,6 +162,13 @@ Any CLI option or JSON response change must be reflected in `HerdrAdapter` even
 if the direct socket remains compatible.
 
 ## Agent harness contract
+
+Optional [worktree naming](worktree-naming.md) runs a separate locally authenticated
+CLI through `src/server/local-naming.ts`. Preserve its ChatGPT-only default auth,
+ephemeral execution, JSON output, timeout, and API-key environment filtering when
+upgrading Codex. The default command was checked with Codex 0.153.4 and
+`gpt-5.6-luna` on 2026-09-06. Tests in `local-naming.test.ts` and
+`worktree-naming.test.ts` cover the command and lifecycle boundaries.
 
 Herdr provider integrations supply `agent`, optional stable `name`,
 `agent_status`, and optional `agent_session` fields in snapshots. Control uses

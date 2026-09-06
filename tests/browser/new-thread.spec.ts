@@ -4,7 +4,7 @@ const client = process.env.HERDR_CONTROL_TEST_CLIENT;
 const project = { project_id: "project-1", name: "Phone project", repo_key: "/repo/.git", repo_root: "/repo", created_at: "2026-09-05T00:00:00Z", updated_at: "2026-09-05T00:00:00Z" };
 const snapshot = { version: "test", protocol: 20, workspaces: [], tabs: [], panes: [], threads: [], projects: [project], worktrees: [{ worktree_id: "worktree-1", project_id: project.project_id, label: "A long branch", branch: "feature/" + "long-name-".repeat(20), checkout_path: "/repo/worktrees/" + "long-path/".repeat(20) }] };
 
-async function openForm(page: Page) {
+async function openForm(page: Page, purposeLabel?: string) {
   await page.addInitScript(() => {
     const NativeEventSource = window.EventSource;
     (window as any).creationFeeds = [];
@@ -19,7 +19,9 @@ async function openForm(page: Page) {
     const path = new URL(route.request().url()).pathname;
     if (path === "/api/control-hosts") return route.fulfill({ json: { hosts: [] } });
     if (path === "/api/agents") return route.fulfill({ json: { agents: ["codex", "pi"] } });
-    if (path === "/api/session/events") return route.fulfill({ contentType: "text/event-stream", body: `data: ${JSON.stringify({ status: "live", revision: 1, snapshot })}\n\n` });
+    if (path === "/api/session/events") return route.fulfill({ contentType: "text/event-stream", body: `data: ${JSON.stringify({ status: "live", revision: 1, snapshot: {
+      ...snapshot, worktrees: snapshot.worktrees.map(worktree => ({ ...worktree, purpose_label: purposeLabel })),
+    } })}\n\n` });
     return route.fulfill({ status: 404, json: { error: "Unexpected fixture request" } });
   });
   await page.goto(client!);
@@ -32,6 +34,20 @@ async function openForm(page: Page) {
   await expect(form.getByLabel("Title", { exact: true })).toHaveCount(0);
   return form;
 }
+
+test("shows worktree purpose above its branch without overflowing on phone or desktop", async ({ page }) => {
+  test.skip(!client, "Browser client required");
+  await page.setViewportSize({ width: 390, height: 844 });
+  const form = await openForm(page, "Improve voice recording feedback");
+  const choice = form.locator(".checkout-choice").filter({ hasText: "Improve voice recording feedback" });
+  await expect(choice.locator("strong")).toHaveText("Improve voice recording feedback");
+  await expect(choice.locator("small")).toHaveText(snapshot.worktrees[0].branch);
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    expect(await form.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.screenshot({ path: `artifacts/worktree-naming/picker-${width}.png` });
+  }
+});
 
 test("keeps the form and actions inside the visible keyboard viewport", async ({ page }) => {
   test.skip(!client, "Browser client required");
