@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { DEFAULT_NAMING_CONFIG, generateWorktreeLabel, namingEnvironment, parseWorktreeLabel, readNamingConfig } from "./local-naming";
+import { DEFAULT_NAMING_CONFIG, generateThreadTitle, namingEnvironment, parseThreadTitle, readNamingConfig } from "./local-naming";
 
 const directories: string[] = [];
 function directory() { const path = mkdtempSync(join(tmpdir(), "naming-test-")); directories.push(path); return path; }
@@ -32,7 +32,7 @@ describe("local naming command", () => {
       if (process.argv[2] !== 'literal $(false); gpt-5.6-luna') process.exit(2);
       if (input.length > 2600 || !input.includes('Task:')) process.exit(3);
       process.stdout.write(JSON.stringify({label:'Improve voice recording'}));`);
-    await expect(generateWorktreeLabel("x".repeat(5000), { ...DEFAULT_NAMING_CONFIG, executable: process.execPath,
+    await expect(generateThreadTitle("x".repeat(5000), { ...DEFAULT_NAMING_CONFIG, executable: process.execPath,
       args: [script, "literal $(false); {model}"] })).resolves.toBe("Improve voice recording");
   });
 
@@ -47,22 +47,22 @@ describe("local naming command", () => {
       if (!process.cwd().includes('herdr-control-naming-')) process.exit(4);
       process.stdin.resume(); process.stdin.on('end', () => process.stdout.write('{"label":"Voice feedback"}'));`);
     chmodSync(executable, 0o700);
-    await expect(generateWorktreeLabel("Voice feedback", { ...DEFAULT_NAMING_CONFIG, executable }))
+    await expect(generateThreadTitle("Voice feedback", { ...DEFAULT_NAMING_CONFIG, executable }))
       .resolves.toBe("Voice feedback");
   });
 
   it("terminates a stuck command and rejects excess output", async () => {
-    await expect(generateWorktreeLabel("test", { ...DEFAULT_NAMING_CONFIG, executable: process.execPath,
+    await expect(generateThreadTitle("test", { ...DEFAULT_NAMING_CONFIG, executable: process.execPath,
       args: ["-e", "setInterval(() => {}, 1000)"], timeoutMs: 60 })).rejects.toThrow("timed out");
-    await expect(generateWorktreeLabel("test", { ...DEFAULT_NAMING_CONFIG, executable: process.execPath,
+    await expect(generateThreadTitle("test", { ...DEFAULT_NAMING_CONFIG, executable: process.execPath,
       args: ["-e", "process.stdout.write('x'.repeat(20000))"] })).rejects.toThrow("exceeded");
-    await expect(generateWorktreeLabel("test", { ...DEFAULT_NAMING_CONFIG, executable: "/missing/naming-command" }))
+    await expect(generateThreadTitle("test", { ...DEFAULT_NAMING_CONFIG, executable: "/missing/naming-command" }))
       .rejects.toThrow("Unable to start");
   });
 
   it("accepts only a short plain label", () => {
     for (const output of ['{}', '{"label":""}', '{"label":"one\\ntwo"}', JSON.stringify({ label: "x".repeat(81) }), 'not JSON']) {
-      expect(() => parseWorktreeLabel(output)).toThrow();
+      expect(() => parseThreadTitle(output)).toThrow();
     }
   });
 });

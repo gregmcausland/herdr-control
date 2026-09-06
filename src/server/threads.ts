@@ -376,23 +376,25 @@ export class ThreadManager {
     return this.listWorktrees().find((worktree) => worktree.worktree_id === worktreeId);
   }
 
-  registerWorktreeNaming(agentName: string): void {
-    this.database.prepare("INSERT OR IGNORE INTO worktree_names (agent_name) VALUES (?)").run(agentName);
+  registerThreadNaming(agentName: string): void {
+    this.database.prepare("INSERT OR IGNORE INTO thread_names (agent_name) VALUES (?)").run(agentName);
   }
 
-  /** Claim before inference, retaining failed attempts to avoid repeated subscription use. */
-  claimWorktreeNaming(threadId: string): WorktreeInfo | undefined {
+  /** Claim once per Thread before inference, including failed attempts. */
+  claimThreadNaming(threadId: string): ThreadInfo | undefined {
     const thread = this.getThread(threadId);
-    const worktree = thread?.worktree_id ? this.getWorktree(thread.worktree_id) : undefined;
-    if (!thread?.agent_name || !worktree?.is_linked_worktree || worktree.removed_at) return;
-    const result = this.database.prepare(`UPDATE worktree_names SET worktree_id = ?, attempted = 1
-      WHERE agent_name = ? AND attempted = 0`).run(worktree.worktree_id, thread.agent_name);
-    return result.changes ? worktree : undefined;
+    if (!thread?.agent_name) return;
+    const result = this.database.prepare(`UPDATE thread_names SET thread_id = ?, attempted = 1
+      WHERE agent_name = ? AND attempted = 0`).run(threadId, thread.agent_name);
+    return result.changes ? thread : undefined;
   }
 
-  completeWorktreeNaming(worktreeId: string, label: string): void {
-    this.database.prepare("UPDATE worktree_names SET label = ? WHERE worktree_id = ? AND label IS NULL")
-      .run(label, worktreeId);
+  completeThreadNaming(threadId: string, label: string): void {
+    this.transaction(() => {
+      this.database.prepare("UPDATE thread_names SET label = ? WHERE thread_id = ? AND label IS NULL").run(label, threadId);
+      this.database.prepare("UPDATE threads SET title = (SELECT label FROM thread_names WHERE thread_id = ? ) WHERE thread_id = ?")
+        .run(threadId, threadId);
+    });
   }
 
   async archive(threadId: string): Promise<ThreadInfo> {
@@ -777,6 +779,13 @@ export class ThreadManager {
         archived_at TEXT
       );
 
+      CREATE TABLE IF NOT EXISTS thread_names (
+        agent_name TEXT PRIMARY KEY,
+        thread_id TEXT UNIQUE REFERENCES threads(thread_id) ON DELETE CASCADE,
+        attempted INTEGER NOT NULL DEFAULT 0,
+        label TEXT
+      );
+
       CREATE TABLE IF NOT EXISTS runs (
         run_id TEXT PRIMARY KEY,
         thread_id TEXT NOT NULL REFERENCES threads(thread_id),
@@ -976,7 +985,7 @@ export class ThreadManager {
       UPDATE threads SET
         project_id = COALESCE(project_id, ?),
         worktree_id = COALESCE(worktree_id, ?),
-        title = ?,
+        title = COALESCE((SELECT label FROM thread_names WHERE thread_id = threads.thread_id), ?),
         agent_kind = ?,
         agent_name = COALESCE(?, agent_name),
         session_source = COALESCE(?, session_source),

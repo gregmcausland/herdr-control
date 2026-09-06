@@ -6,7 +6,7 @@ import type {
 } from "../shared/protocol.js";
 import type { HerdrAdapter } from "./herdr.js";
 import { ThreadNotFoundError, type ThreadManager } from "./threads.js";
-import type { WorktreeNamingService } from "./worktree-naming.js";
+import type { ThreadNamingService } from "./thread-naming.js";
 
 export class ProjectNotFoundError extends Error {}
 export class WorktreeNotFoundError extends Error {}
@@ -35,7 +35,7 @@ export class ThreadLifecycleService {
     private readonly threads: ThreadLifecycleStore,
     private readonly herdr: ThreadLifecycleHerdr,
     private readonly requestRefresh: () => void = () => undefined,
-    private readonly naming?: Pick<WorktreeNamingService, "created" | "prompted">,
+    private readonly naming?: Pick<ThreadNamingService, "created" | "prompted">,
   ) {}
 
   async create(projectId: string, creation: ThreadCreationRequest): Promise<ThreadCreationResult> {

@@ -154,7 +154,7 @@ test("keeps project and thread positions stable as live agents finish", async ({
   const newer = { ...older, pane_id: "newer-pane", label: "Newer idle thread", thread_id: "newer", agent_status: "idle", last_work_duration_ms: 123_000 };
   state.panes = [older, newer, { ...newer, pane_id: "alpha-pane", label: "Alpha thread", thread_id: "alpha", project_id: "alpha:project" }];
   state.threads = ["older", "newer", "alpha"].map((id, index) => ({
-    thread_id: id, title: id, agent: "codex", lifecycle: "open",
+    thread_id: id, title: state.panes[index].label!, agent: "codex", lifecycle: "open",
     created_at: `2026-08-${20 + index}T12:00:00.000Z`, updated_at: "2026-09-05T12:00:00.000Z",
   }));
   home.publish(state);

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { MAX_AUDIO_BYTES, TranscriptionError, TranscriptionService } from "./transcription.js";
 import { ConversationStore } from "./conversations.js";
-import { WorktreeNamingService } from "./worktree-naming.js";
+import { ThreadNamingService } from "./thread-naming.js";
 import { collectReplies } from "./capture.js";
 import { MessageDeliveryService, MessageConflictError } from "./message-delivery.js";
 import { createReadStream, existsSync, statSync } from "node:fs";
@@ -86,7 +86,7 @@ export function createControlServer(
     50,
     (snapshot) => threads.reconcile(snapshot),
   );
-  const naming = new WorktreeNamingService(threads, herdr, config.namingConfigPath, () => session.requestRefresh?.());
+  const naming = new ThreadNamingService(threads, herdr, config.namingConfigPath, () => session.requestRefresh?.());
   const threadLifecycle = new ThreadLifecycleService(
     threads,
     herdr,

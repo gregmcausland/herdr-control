@@ -1,12 +1,14 @@
-# Worktree naming through a local agent CLI
+# Thread naming through a local agent CLI
 
-Herdr Control can name a newly created worktree from its first accepted composer
+Herdr Control can name each newly created thread from its first accepted composer
 message. The coding agent can be Codex, Pi, or any other supported agent. Control
-runs a separate headless naming command and gives Herdr an ordinary
-`workspace.rename` command. The checkout folder and Git branch keep their names.
+runs a separate headless naming command and gives Herdr ordinary
+`pane.rename` and `tab.rename` commands. The workspace, checkout folder and Git branch
+keep their names.
 
-The checkout picker shows the saved purpose above the branch. Existing worktrees
-are not renamed retroactively. An explicit label at creation skips generation.
+The thread list and conversation header show the generated title. Each thread gets
+its own title, including threads sharing a checkout. An explicit thread title at
+creation skips generation. A worktree label does not disable thread naming.
 Naming currently observes messages sent through Control's conversation composer;
 terminal input and initial prompts supplied by other API clients do not trigger it.
 
@@ -51,7 +53,7 @@ Set `executable` and `args` to use another CLI or a small wrapper:
 ```json
 {
   "enabled": true,
-  "executable": "/home/user/bin/name-worktree",
+  "executable": "/home/user/bin/name-thread",
   "args": ["--model", "{model}"],
   "model": "your-model"
 }
@@ -66,16 +68,19 @@ no voice/API credentials to custom commands either.
 
 ## Limits and failures
 
-Only a new worktree created by Control without an explicit label is eligible.
-Its first accepted composer message claims the naming attempt durably. Duplicate
-messages, later threads, and bridge restarts do not generate another label. A
-disabled, failed, interrupted, or timed-out attempt is not automatically retried.
+Every new thread created by Control without an explicit title is eligible,
+regardless of whether it uses the project checkout, an existing worktree, a newly
+created worktree, or an opened checkout. Its first accepted composer message claims
+the naming attempt durably. Duplicate messages, later messages, and bridge restarts
+do not generate another title. Other threads in the same worktree get their own
+naming attempts. A disabled, failed, interrupted, or timed-out attempt is not
+automatically retried.
 
 Jobs run one at a time, with at most 32 waiting or running jobs. Output is limited
 to 16 KiB and labels to 80 characters. A failure keeps the existing name and logs
 a short diagnostic without the message or subprocess output. Conversation
-delivery does not wait for naming. A workspace renamed during inference is left
-alone. The saved purpose remains available when the checkout is closed.
+delivery does not wait for naming. A replacement agent at a reused pane locator
+is left alone. The saved title remains available when the thread is archived and when the bridge restarts.
 
 Run `npm run typecheck`, `npm test`, and `npm run test:browser:mock`. The naming
 tests use substitute commands and Herdr transport, so they do not consume an

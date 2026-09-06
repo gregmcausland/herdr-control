@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import type { AddressInfo } from "node:net";
 import { HerdrAdapter } from "../../src/server/herdr";
@@ -7,6 +10,10 @@ import { ThreadManager } from "../../src/server/threads";
 import type { SessionFeedState } from "../../src/shared/protocol";
 
 test("starts a thread through Control while Herdr is still detecting the agent", async ({ page }, testInfo) => {
+  const directory = mkdtempSync(join(tmpdir(), "thread-naming-browser-"));
+  const namingConfigPath = join(directory, "naming.json");
+  writeFileSync(namingConfigPath, JSON.stringify({ enabled: true, executable: process.execPath,
+    args: ["-e", "process.stdin.resume(); process.stdin.on('end', () => process.stdout.write(JSON.stringify({label:'Name threads from their first message'})))"] }));
   const threads = new ThreadManager({ path: ":memory:" });
   const snapshot = threads.reconcile({
     version: "0.8.0", protocol: 20,
@@ -25,7 +32,7 @@ test("starts a thread through Control while Herdr is still detecting the agent",
     current: () => state,
     subscribe: listener => { listeners.add(listener); listener(state); return () => { listeners.delete(listener); }; },
     requestRefresh: () => {
-      state = { status: "live", revision: 2, snapshot: threads.reconcile({
+      state = { status: "live", revision: state.revision + 1, snapshot: threads.reconcile({
         ...snapshot,
         tabs: [{ workspace_id: "w1", tab_id: "w1:t2", label: "Test", number: 1, pane_count: 1, focused: false }],
         panes: [{ workspace_id: "w1", tab_id: "w1:t2", pane_id: "w1:p2", terminal_id: "fixture-terminal",
@@ -45,7 +52,7 @@ test("starts a thread through Control while Herdr is still detecting the agent",
     if (method === "tab.create") return { result: {
       type: "tab_created", tab: { tab_id: "w1:t2", workspace_id: "w1" }, root_pane: { pane_id: "w1:p2" },
     } };
-    if (method === "pane.rename" || method === "pane.report_metadata") return { result: {} };
+    if (method === "pane.rename" || method === "tab.rename" || method === "pane.report_metadata") return { result: {} };
     if (method === "agent.start") agentName = String(params.name);
     if (method === "agent.start" || method === "agent.get") {
       if (method === "agent.get") inspections++;
@@ -70,7 +77,7 @@ test("starts a thread through Control while Herdr is still detecting the agent",
   const allowedOrigins = new Set<string>();
   const server = createControlServer({
     host: "127.0.0.1", port: 0, herdrBinary: "/fixture/no-herdr", herdrSocketPath: "/fixture/no-socket",
-    statePath: ":memory:", allowedOrigins, openaiApiKey: "fixture-not-used",
+    statePath: ":memory:", namingConfigPath, allowedOrigins, openaiApiKey: "fixture-not-used",
   }, herdr, session, threads, undefined, async () => ["codex"]);
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -107,6 +114,14 @@ test("starts a thread through Control while Herdr is still detecting the agent",
     await expect(page.locator(".conversation-message.user")).toContainText("My first message comes from the conversation");
     await expect.poll(() => calls.filter(call => call.method === "agent.prompt").length).toBe(1);
     expect(calls.find(call => call.method === "agent.prompt")?.params).toEqual({ target: "w1:p2", text: "My first message comes from the conversation" });
+    await expect(page.locator(".conversation-heading h1")).toHaveText("Name threads from their first message");
+    await expect.poll(() => calls.filter(call => call.method === "tab.rename").length).toBe(1);
+    expect(calls.some(call => call.method === "workspace.rename")).toBe(false);
+    await page.screenshot({ path: testInfo.outputPath("named-thread-phone.png") });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.screenshot({ path: testInfo.outputPath("named-thread-desktop.png") });
+    await page.goto(url);
+    await expect(page.locator(".pane-copy strong")).toContainText("Name threads from their first message");
     expect(browserErrors).toEqual([]);
   } finally {
     await page.close();
@@ -114,5 +129,6 @@ test("starts a thread through Control while Herdr is still detecting the agent",
       server.close(error => error ? reject(error) : resolve());
       server.closeAllConnections();
     });
+    rmSync(directory, { recursive: true, force: true });
   }
 });

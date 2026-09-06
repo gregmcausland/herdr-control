@@ -284,11 +284,12 @@ export function App() {
                   {panes.map((pane) => {
                     const thread = snapshot.threads?.find((candidate) => candidate.thread_id === pane.thread_id);
                     const kind = thread ? "archive" : "delete";
+                    const title = thread?.title ?? paneTitle(pane);
                     return <div className="pane-row" key={pane.pane_id}>
                       <button
                         className={`pane ${pane.agent_status === "working" ? "working" : ""}`}
                         title={`${host.label} · ${pane.pane_id}`}
-                        aria-label={`Open ${paneTitle(pane)} on ${host.label}`}
+                        aria-label={`Open ${title} on ${host.label}`}
                         onClick={() => control.openPane(host, pane)}
                       >
                         {pane.agent_status === "working" && <WorkingActivity themeId={settings.theme} />}
@@ -297,7 +298,7 @@ export function App() {
                           title={pane.agent_status ?? "unknown"}
                         />
                         <span className="pane-copy">
-                          <strong>{paneTitle(pane)}</strong>
+                          <strong>{title}</strong>
                           <small className="pane-detail">
                             {pane.worktree_id && linkedWorktreeIds.has(pane.worktree_id) && (
                               <span className="worktree-indicator" title="Worktree">
@@ -312,7 +313,7 @@ export function App() {
                         className="pane-manage secondary icon-button"
                         type="button"
                         disabled={feedStatus !== "live"}
-                        aria-label={`${kind === "archive" ? "Archive" : "Delete"} ${paneTitle(pane)} on ${host.label}`}
+                        aria-label={`${kind === "archive" ? "Archive" : "Delete"} ${title} on ${host.label}`}
                         title={kind === "archive" ? "Archive thread" : thread ? "Delete thread" : "Delete pane"}
                         onClick={() => control.openPaneAction({ kind, host, pane, thread })}
                       >

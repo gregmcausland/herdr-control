@@ -49,8 +49,8 @@ without acquiring its terminal. Write or dictate your first message there.
 During launch, the form prevents duplicate submissions. Errors preserve your
 checkout choices.
 
-Optional [automatic worktree naming](worktree-naming.md) uses a locally
-authenticated agent CLI to give a new checkout a useful label after your first
+Optional [automatic thread naming](thread-naming.md) uses a locally
+authenticated agent CLI to give a new thread a useful label after your first
 message. Its command and model live in advanced host configuration.
 
 The agent continues under Herdr if the browser closes. Reopen its row to read

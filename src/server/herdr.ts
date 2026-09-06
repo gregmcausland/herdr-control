@@ -323,8 +323,9 @@ export class HerdrAdapter {
     });
   }
 
-  async renameWorkspace(workspaceId: string, label: string): Promise<void> {
-    await this.socketRequest(this.socketPath, "workspace.rename", { workspace_id: workspaceId, label });
+  async renameThread(paneId: string, tabId: string, label: string): Promise<void> {
+    await this.socketRequest(this.socketPath, "pane.rename", { pane_id: paneId, label });
+    await this.socketRequest(this.socketPath, "tab.rename", { tab_id: tabId, label });
   }
 
   /** Creates one dedicated Herdr tab, starts its agent, then optionally prompts it. */
