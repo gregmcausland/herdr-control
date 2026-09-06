@@ -381,6 +381,58 @@ test.describe("voice input", () => {
     expect(state.submissions).toHaveLength(0);
   });
 
+  test("recording holds a screen wake lock and releases it on finish, cancel and pagehide", async ({ page }) => {
+    test.skip(!client, "Browser client required");
+    await voiceFixture(page);
+    await page.route("**/api/transcription", route => route.fulfill({ json: route.request().method() === "GET" ? { available: true } : { text: "A recorded draft" } }));
+    await page.addInitScript(() => {
+      (window as any).wakeLocks = [];
+      Object.defineProperty(navigator, "wakeLock", { configurable: true, value: { request: async (type: string) => {
+        const lock = { type, released: false, release: async () => { lock.released = true; } };
+        (window as any).wakeLocks.push(lock);
+        return lock;
+      } } });
+    });
+    await open(page);
+    expect(await page.evaluate(() => (window as any).wakeLocks.length)).toBe(0);
+    for (const action of ["finish", "cancel", "pagehide"]) {
+      await page.getByRole("button", { name: "Dictate message" }).click();
+      await expect.poll(() => page.evaluate(() => (window as any).wakeLocks.filter((lock: any) => !lock.released).map((lock: any) => lock.type))).toEqual(["screen"]);
+      if (action === "finish") {
+        await expect(page.locator(".voice-duration")).toHaveAttribute("aria-label", "1s / 120s");
+        await page.getByRole("button", { name: "Stop recording" }).click();
+      } else if (action === "cancel") await page.getByRole("button", { name: "Cancel", exact: true }).click();
+      else await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+      await expect.poll(() => page.evaluate(() => (window as any).wakeLocks.every((lock: any) => lock.released))).toBe(true);
+      await expect(page.getByRole("button", { name: "Dictate message" })).toBeEnabled();
+    }
+    expect(await page.evaluate(() => (window as any).wakeLocks.length)).toBe(3);
+  });
+
+  test("late wake locks are released and denial or missing support never blocks recording", async ({ page }) => {
+    test.skip(!client, "Browser client required");
+    await voiceFixture(page);
+    await page.route("**/api/transcription", route => route.fulfill({ json: { available: true } }));
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "wakeLock", { configurable: true, value: { request: () => new Promise(resolve => {
+        (window as any).grantWakeLock = () => resolve({ release: async () => { (window as any).wakeLockReleased = true; } });
+      }) } });
+    });
+    await open(page);
+    await page.getByRole("button", { name: "Dictate message" }).click();
+    await expect(page.getByRole("button", { name: "Stop recording" })).toBeEnabled();
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.evaluate(() => (window as any).grantWakeLock());
+    await expect.poll(() => page.evaluate(() => (window as any).wakeLockReleased)).toBe(true);
+    for (const supported of [true, false]) {
+      await page.evaluate(supported => Object.defineProperty(navigator, "wakeLock", { configurable: true, value: supported ? { request: () => Promise.reject(new DOMException("Power saving", "NotAllowedError")) } : undefined }), supported);
+      await page.getByRole("button", { name: "Dictate message" }).click();
+      await expect(page.getByRole("img", { name: "Live microphone waveform" })).toBeVisible();
+      await page.getByRole("button", { name: "Cancel", exact: true }).click();
+      await expect(page.getByRole("button", { name: "Dictate message" })).toBeEnabled();
+    }
+  });
+
   test("permission wait can be cancelled and transcription errors leave a usable composer", async ({ page }, testInfo) => {
     test.skip(!client, "Browser client required");
     await page.setViewportSize({ width: 390, height: 844 });

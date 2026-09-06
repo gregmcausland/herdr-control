@@ -7,12 +7,27 @@ type Recording = {
   stream?: MediaStream;
   recorder?: MediaRecorder;
   timer?: ReturnType<typeof setInterval>;
+  wakeLock?: WakeLockSentinel;
 };
 
 function release(recording: Recording) {
   clearInterval(recording.timer);
   if (recording.recorder?.state === "recording") recording.recorder.stop();
   recording.stream?.getTracks().forEach(track => track.stop());
+  const wakeLock = recording.wakeLock;
+  recording.wakeLock = undefined;
+  void wakeLock?.release().catch(() => undefined);
+}
+
+/** Keep the screen on while speaking, without making recording depend on browser support. */
+async function keepScreenAwake(recording: Recording) {
+  try {
+    const wakeLock = await navigator.wakeLock?.request("screen");
+    if (!wakeLock) return;
+    // The user may finish or leave while the browser is still granting the lock.
+    if (recording.recorder?.state !== "recording") { await wakeLock.release(); return; }
+    recording.wakeLock = wakeLock;
+  } catch { /* Power-saving settings and older browsers may refuse a wake lock. */ }
 }
 
 /** Owns microphone lifetime and drops late results after cancellation or navigation. */
@@ -104,6 +119,7 @@ export function useDictation(bridgeUrl: string, onTranscript: (text: string) => 
         }
       };
       recorder.start();
+      void keepScreenAwake(recording);
       setStream(stream);
       setPhase("recording");
       const began = Date.now();

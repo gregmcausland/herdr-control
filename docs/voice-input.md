@@ -18,6 +18,11 @@ mode shows the current level without scrolling history. If analysis is
 unavailable, recording still works. The analyser and its audio context are
 released when recording ends.
 
+While recording, Control requests a screen wake lock to prevent automatic dimming
+and screen timeout. Finish, Cancel, navigation and the two-minute limit release
+it. Unsupported browsers or power-saving restrictions do not block recording.
+Manually locking the phone or switching apps still cancels voice input.
+
 Cancel discards the recording. Navigating away or hiding the page cancels voice
 input and releases the microphone. Recordings stop automatically at two minutes.
 Failed transcriptions leave the draft unchanged; record again to retry.
