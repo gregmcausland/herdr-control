@@ -59,7 +59,6 @@ describe("terminal ownership", () => {
         emit = next;
         return { send, release, dispose };
       },
-      focusPane: async () => undefined,
       snapshot: async () => snapshot,
     } as unknown as HerdrAdapter;
     const requestRefresh = vi.fn();

@@ -145,6 +145,22 @@ describe("terminal session ownership", () => {
     session.dispose();
   });
 
+  it("keeps a server compatibility failure local to the terminal", () => {
+    const { session, sockets } = setup();
+    session.connect("control");
+    sockets[0].receive({
+      type: "closed",
+      reason: "Herdr client protocol 22 does not match server protocol 20",
+    });
+
+    expect(session.getState()).toMatchObject({
+      phase: "disconnected",
+      message: "Herdr client protocol 22 does not match server protocol 20",
+    });
+    vi.advanceTimersByTime(250);
+    expect(sockets).toHaveLength(2);
+  });
+
   it("keeps a healthy observer connected without requiring control", () => {
     const { session, sockets } = setup();
     session.connect("observe");

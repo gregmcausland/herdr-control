@@ -32,6 +32,110 @@ describe("agent session restore commands", () => {
   });
 });
 
+describe("Herdr JSON socket integration", () => {
+  it("reads protocol 22 snapshots without invoking a version-matched CLI", async () => {
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+    const herdr = new HerdrAdapter("herdr", "/tmp/herdr.sock", async (_socket, method, params) => {
+      calls.push({ method, params });
+      return {
+        result: {
+          snapshot: {
+            version: "0.9.0",
+            protocol: 22,
+            workspaces: [],
+            tabs: [],
+            panes: [],
+          },
+        },
+      };
+    });
+
+    await expect(herdr.snapshot()).resolves.toMatchObject({ version: "0.9.0", protocol: 22 });
+    expect(calls).toEqual([{ method: "session.snapshot", params: {} }]);
+  });
+
+  it("restores a Thread entirely through the JSON socket", async () => {
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+    const herdr = new HerdrAdapter("herdr", "/tmp/herdr.sock", async (_socket, method, params) => {
+      calls.push({ method, params });
+      if (method === "tab.create") return tabCreated("w1", "w1:t3", "w1:p3");
+      if (method === "agent.start") return agentStarted(params);
+      return { result: {} };
+    });
+
+    await herdr.restoreThread({
+      threadId: "thread-1",
+      agentName: "restored_thread",
+      title: "Restored thread",
+      agent: "codex",
+      session: { source: "herdr:codex", agent: "codex", kind: "id", value: "session-1" },
+      workspaceId: "w1",
+      workspaceLabel: "Control",
+      cwd: "/projects/control",
+    });
+
+    expect(calls).toEqual([
+      {
+        method: "tab.create",
+        params: {
+          workspace_id: "w1",
+          cwd: "/projects/control",
+          label: "Restored thread",
+          focus: false,
+        },
+      },
+      {
+        method: "agent.start",
+        params: {
+          name: "restored_thread",
+          kind: "codex",
+          pane_id: "w1:p3",
+          timeout_ms: 60_000,
+          args: ["resume", "session-1"],
+        },
+      },
+    ]);
+  });
+
+  it("creates a replacement workspace only when the saved workspace is gone", async () => {
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+    const herdr = new HerdrAdapter("herdr", "/tmp/herdr.sock", async (_socket, method, params) => {
+      calls.push({ method, params });
+      if (method === "tab.create") throw new HerdrRequestError("workspace_not_found", "gone");
+      if (method === "workspace.create") {
+        return {
+          result: {
+            workspace: { workspace_id: "w2" },
+            tab: { tab_id: "w2:t1", workspace_id: "w2" },
+            root_pane: { pane_id: "w2:p1" },
+          },
+        };
+      }
+      if (method === "agent.start") throw new Error("launch failed");
+      return { result: {} };
+    });
+
+    await expect(herdr.restoreThread({
+      threadId: "thread-1",
+      agentName: "restored_thread",
+      title: "Restored thread",
+      agent: "pi",
+      session: { source: "herdr:pi", agent: "pi", kind: "path", value: "/tmp/session.jsonl" },
+      workspaceId: "missing",
+      workspaceLabel: "Control",
+      cwd: "/projects/control",
+    })).rejects.toThrow("launch failed");
+
+    expect(calls.map((call) => call.method)).toEqual([
+      "tab.create",
+      "workspace.create",
+      "agent.start",
+      "workspace.close",
+    ]);
+    expect(calls.at(-1)?.params).toEqual({ workspace_id: "w2" });
+  });
+});
+
 describe("agent launch permissions", () => {
   it.each([
     ["codex", ["--dangerously-bypass-approvals-and-sandbox"]],

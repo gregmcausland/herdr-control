@@ -4,7 +4,6 @@ export type TerminalClientMessage =
   | { type: "ping" }
   | { type: "input"; data: string }
   | { type: "key"; key: string }
-  | { type: "view" }
   | { type: "resize"; cols: number; rows: number }
   | {
       type: "scroll";

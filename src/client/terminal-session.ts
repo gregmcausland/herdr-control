@@ -123,10 +123,10 @@ export function createTerminalSession(
     }, delay);
   };
 
-  const retryAfterClose = () => {
+  const retryAfterClose = (message?: string) => {
     const delay = Math.min(250 * (2 ** reconnectAttempt), 4_000);
     reconnectAttempt += 1;
-    retryConnection(delay);
+    retryConnection(delay, message);
   };
 
   const finishAttempt = (current: Attempt) => {
@@ -228,7 +228,7 @@ export function createTerminalSession(
         publish({ phase: state.phase, mode: current.mode, message: incoming.message });
       } else {
         closeAttempt(current);
-        retryAfterClose();
+        retryAfterClose(incoming.reason);
       }
     };
     socket.onclose = () => {
@@ -326,7 +326,7 @@ export function createTerminalSession(
         !current ||
         current.phase !== "connected" ||
         current.socket.readyState !== SOCKET_OPEN ||
-        (message.type !== "view" && message.type !== "ping" && current.mode !== "control")
+        (message.type !== "ping" && current.mode !== "control")
       ) return false;
       current.socket.send(JSON.stringify(message));
       return true;

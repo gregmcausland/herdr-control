@@ -12,11 +12,7 @@ import type {
   ControlHost,
 } from "../shared/control-hosts.js";
 import { isKnownAgentKind, type KnownAgentKind } from "../shared/agents.js";
-import {
-  CONTROL_VERSION,
-  HERDR_PROTOCOL_MAX,
-  HERDR_PROTOCOL_MIN,
-} from "../shared/compatibility.js";
+import { CONTROL_VERSION } from "../shared/compatibility.js";
 import type {
   TerminalClientMessage,
   TerminalMode,
@@ -145,7 +141,6 @@ export function createControlServer(
         ok: true,
         control_version: CONTROL_VERSION,
         capabilities: { conversations: true },
-        herdr_protocol: { min: HERDR_PROTOCOL_MIN, max: HERDR_PROTOCOL_MAX },
       });
       return;
     }
@@ -394,12 +389,6 @@ export function createControlServer(
         const message = JSON.parse(raw.toString()) as TerminalClientMessage;
         if (!isClientMessage(message)) throw new Error("Invalid terminal command");
         if (message.type === "ping") { send({ type: "pong" }); return; }
-        if (message.type === "view") {
-          void herdr.focusPane(target).catch((error: unknown) => {
-            send({ type: "error", message: error instanceof Error ? error.message : "Unable to mark pane as viewed" });
-          });
-          return;
-        }
         if (message.type === "release") {
           attached = false;
           void terminal.release().then(() => send({ type: "released" }));
@@ -465,7 +454,6 @@ function isClientMessage(message: TerminalClientMessage): boolean {
   if (!message || typeof message !== "object") return false;
   if (message.type === "ping") return true;
   if (message.type === "release") return true;
-  if (message.type === "view") return true;
   if (message.type === "input") return typeof message.data === "string";
   if (message.type === "key") return /^[a-z0-9]+(?:\+[a-z0-9]+)*$/.test(message.key);
   if (message.type === "resize") {

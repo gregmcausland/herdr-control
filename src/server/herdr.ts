@@ -94,7 +94,7 @@ export class HerdrTerminalConnection {
     binary: string,
     private readonly socketPath: string,
     private readonly target: string,
-    mode: TerminalMode,
+    private readonly mode: TerminalMode,
     takeover: boolean,
     cols: number,
     rows: number,
@@ -103,7 +103,10 @@ export class HerdrTerminalConnection {
     const args = ["terminal", "session", mode, target, "--cols", String(cols), "--rows", String(rows)];
     if (mode === "control" && takeover) args.push("--takeover");
 
-    this.child = spawn(binary, args, { stdio: ["pipe", "pipe", "pipe"] });
+    this.child = spawn(binary, args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: herdrProcessEnvironment(socketPath),
+    });
     const lines = createInterface({ input: this.child.stdout });
 
     lines.on("line", (line) => {
@@ -152,7 +155,7 @@ export class HerdrTerminalConnection {
 
   send(message: TerminalClientMessage): void {
     if (this.disposed || !this.child.stdin.writable) return;
-    if (message.type === "ping" || message.type === "view") return;
+    if (message.type === "ping") return;
     if (message.type === "release") {
       void this.release();
       return;
@@ -193,7 +196,13 @@ export class HerdrTerminalConnection {
     this.releasePromise = new Promise<void>((resolve) => {
       this.resolveRelease = resolve;
     });
-    this.write({ type: "terminal.release" });
+    if (this.mode === "observe") {
+      // Herdr observers are read-only and do not consume release records.
+      this.receivedClose = true;
+      this.child.kill();
+    } else {
+      this.write({ type: "terminal.release" });
+    }
     return this.releasePromise;
   }
 
@@ -245,8 +254,9 @@ export class HerdrAdapter {
   ) {}
 
   async snapshot(): Promise<SessionSnapshot> {
-    const stdout = await this.run(["api", "snapshot"]);
-    return sessionSnapshotFromHerdrResponse(JSON.parse(stdout));
+    return sessionSnapshotFromHerdrResponse(
+      await this.socketRequest(this.socketPath, "session.snapshot", {}),
+    );
   }
 
   connectTerminal(
@@ -271,10 +281,6 @@ export class HerdrAdapter {
     );
   }
 
-  async focusPane(target: string): Promise<void> {
-    await this.socketRequest(this.socketPath, "pane.focus", { pane_id: target });
-  }
-
   async closePane(target: string): Promise<void> {
     await this.socketRequest(this.socketPath, "pane.close", { pane_id: target });
   }
@@ -296,21 +302,21 @@ export class HerdrAdapter {
     const location = await this.createRestoreLocation(request);
 
     try {
-      await this.run([
-        "agent",
-        "start",
-        request.agentName,
-        "--kind",
-        request.agent,
-        "--pane",
+      const started = await this.socketRequest(this.socketPath, "agent.start", {
+        name: request.agentName,
+        kind: request.agent,
+        pane_id: location.paneId,
+        timeout_ms: AGENT_START_TIMEOUT_MS,
+        args: resumeArgs,
+      });
+      await this.waitForStartedAgent(
         location.paneId,
-        "--timeout",
-        "60000",
-        "--",
-        ...resumeArgs,
-      ]);
+        request.agentName,
+        request.agent,
+        started,
+      );
     } catch (error) {
-      await this.run([location.kind, "close", location.id]).catch(() => undefined);
+      await this.closeRestoreLocation(location).catch(() => undefined);
       throw error;
     }
   }
@@ -501,54 +507,37 @@ export class HerdrAdapter {
   }
 
   private async createRestoreLocation(request: ThreadRestoreRequest): Promise<HerdrRestoreLocation> {
-    const cwdArgs = [
-      ...(request.cwd ? ["--cwd", request.cwd] : []),
-    ];
-
     try {
-      const response = JSON.parse(await this.run([
-        "tab",
-        "create",
-        "--workspace",
-        request.workspaceId,
-        ...cwdArgs,
-        "--label",
-        request.title,
-        "--no-focus",
-      ]));
+      const response = await this.socketRequest(this.socketPath, "tab.create", compactRecord({
+        workspace_id: request.workspaceId,
+        cwd: request.cwd,
+        label: request.title,
+        focus: false,
+      }));
       return restoreLocationFromHerdrResponse(response, "tab");
-    } catch {
-      const response = JSON.parse(await this.run([
-        "workspace",
-        "create",
-        ...cwdArgs,
-        "--label",
-        request.workspaceLabel,
-        "--tab-label",
-        request.title,
-        "--no-focus",
-      ]));
+    } catch (error) {
+      if (!(error instanceof HerdrRequestError) || error.code !== "workspace_not_found") throw error;
+      const response = await this.socketRequest(this.socketPath, "workspace.create", compactRecord({
+        cwd: request.cwd,
+        label: request.workspaceLabel,
+        tab_label: request.title,
+        focus: false,
+      }));
       return restoreLocationFromHerdrResponse(response, "workspace");
     }
   }
 
-  private run(args: string[]): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const child = spawn(this.binary, args, { stdio: ["ignore", "pipe", "pipe"] });
-      let stdout = "";
-      let stderr = "";
-      child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString("utf8")));
-      child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")));
-      const timer = setTimeout(() => { child.kill(); reject(new Error("Timed out waiting for Herdr")); }, 70_000);
-      timer.unref();
-      child.on("error", (error) => { clearTimeout(timer); reject(error); });
-      child.on("close", (code) => {
-        clearTimeout(timer);
-        if (code === 0) resolve(stdout);
-        else reject(new Error(stderr.trim() || `Herdr exited with code ${code}`));
-      });
-    });
+  private closeRestoreLocation(location: HerdrRestoreLocation): Promise<Record<string, unknown>> {
+    return location.kind === "tab"
+      ? this.socketRequest(this.socketPath, "tab.close", { tab_id: location.id })
+      : this.socketRequest(this.socketPath, "workspace.close", { workspace_id: location.id });
   }
+}
+
+function herdrProcessEnvironment(socketPath: string): NodeJS.ProcessEnv {
+  return socketPath
+    ? { ...process.env, HERDR_SOCKET_PATH: socketPath }
+    : process.env;
 }
 
 function delay(milliseconds: number): Promise<void> {

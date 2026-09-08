@@ -9,8 +9,9 @@ Use this document when upgrading Herdr, an agent harness, Node.js, xterm.js, or
 the browser/deployment environment. It records what Control relies on, where the
 adapter lives, likely failure symptoms, and which tests to run.
 
-Last reviewed: 2026-09-05. Deployments use Herdr 0.8.0, protocols 19-20, and
-Node.js 24.16.0 or 26.8.1. See [validation](prototype-validation.md) for scope. The project
+Last reviewed: 2026-09-07. Control has been checked with Herdr 0.8.0 using
+protocols 19-20 and Herdr 0.9.0 using protocol 22. Current checks use Node.js
+24.16.0 or 26.8.1. See [validation](prototype-validation.md) for scope. The project
 supports Node.js 22.5 or newer; JavaScript dependency versions remain pinned by
 `package-lock.json`.
 
@@ -87,7 +88,7 @@ arrive, or repeated reconnecting despite Herdr remaining healthy.
 
 Control currently uses these socket methods:
 
-- `pane.focus`, `pane.close`, `pane.rename`, `pane.report_metadata`, and `pane.send_keys`
+- `pane.close`, `pane.rename`, `pane.report_metadata`, and `pane.send_keys`
 - `workspace.create`
 - `tab.create` and `tab.rename`
 - `worktree.create` and `worktree.open`
@@ -135,31 +136,26 @@ Its stdout is NDJSON. Control expects:
 - `terminal.frame` with `seq`, `width`, `height`, `full`, and base64 `bytes`.
 - `terminal.closed` with an optional `reason`.
 
-Its stdin receives `terminal.input`, `terminal.resize`, `terminal.scroll`, and
-`terminal.release` records. Logical keys use the socket's `pane.send_keys`
-method so Herdr can encode keys such as Shift+Enter for the active terminal
-protocol.
+In control mode, stdin receives `terminal.input`, `terminal.resize`,
+`terminal.scroll`, and `terminal.release` records. Observe mode is read-only, so
+Control terminates its child process to release an observer. Logical keys use the
+socket's `pane.send_keys` method so Herdr can encode keys such as Shift+Enter for
+the active terminal protocol.
 
 Two occupied-client conditions are currently recognized from Herdr's close
 reason text: `already has an attached client` and `terminal attach taken over`.
 This text matching is the most fragile part of the ownership adapter. Prefer a
 structured Herdr close code if one becomes available.
 
-`HERDR_CONTROL_SOCKET` configures direct socket traffic. Spawned Herdr CLI
-commands inherit the process environment and currently do not receive an
-explicit socket argument. If a non-default socket is configured, ensure the CLI
-also resolves it through the inherited `HERDR_SOCKET_PATH`. Otherwise, socket
-state and terminal control can point at different Herdr instances.
+`HERDR_CONTROL_SOCKET` configures direct socket traffic. Control passes the same
+path to the terminal subprocess as `HERDR_SOCKET_PATH`, so state and terminal
+control cannot resolve different named sessions.
 
-The HTTP snapshot fallback and Thread restoration also use Herdr CLI commands:
+Snapshots, Thread restoration, and restore cleanup use the JSON socket directly.
+This keeps Herdr's version-matched private protocol limited to terminal streaming.
 
-- `herdr api snapshot`
-- `herdr tab create` and `herdr workspace create`
-- `herdr agent start ... -- <provider resume arguments>`
-- `herdr tab close` or `herdr workspace close` after a failed restore
-
-Any CLI option or JSON response change must be reflected in `HerdrAdapter` even
-if the direct socket remains compatible.
+Any terminal command option or JSON response change must be reflected in
+`HerdrAdapter` even if the other transport remains compatible.
 
 ## Agent harness contract
 
@@ -200,8 +196,8 @@ Current provider-specific assumptions are:
 | OpenCode | Not supported | `--auto` | None |
 
 Creation passes permission arguments through Herdr's `agent.start`. Restoration
-starts the agent in a fresh dedicated tab and passes the resume arguments after
-`--`. If a harness changes a flag or session identifier format, update the
+starts the agent in a fresh dedicated tab and passes the resume arguments in the
+socket request's `args` array. If a harness changes a flag or session identifier format, update the
 single translation functions and their table-driven tests before enabling the
 new version.
 

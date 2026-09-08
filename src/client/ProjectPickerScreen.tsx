@@ -1,38 +1,35 @@
 import type { HostedProject } from "./hosted-projects";
-import { TaskSurface } from "./Surface";
+import { RadialMenu } from "./RadialMenu";
 
 export function ProjectPickerScreen({
-  projects,
-  onClose,
-  onSelect,
+  projects, initialOffset, onOffsetChange, onClose, onBack, onSelect,
 }: {
   projects: readonly HostedProject[];
+  initialOffset?: number;
+  onOffsetChange?(offset: number): void;
   onClose(): void;
+  onBack?(): void;
   onSelect(project: HostedProject): void;
 }) {
   return (
-    <TaskSurface
+    <RadialMenu
       title="Choose a project"
-      className="project-picker-screen"
-      actions={(
-        <button className="surface-button secondary" type="button" onClick={onClose}>Cancel</button>
-      )}
+      description="New thread · Project → Agent → Launch"
+      options={projects.map(project => ({
+        id: project.key,
+        label: project.project.name,
+        detail: `${project.host.label} · ${project.project.repo_root}${project.feedStatus !== "live" ? " · Offline" : ""}`,
+        disabled: project.feedStatus !== "live",
+      }))}
+      emptyMessage="No projects yet. Open a repository in Herdr to get started."
+      initialOffset={initialOffset}
+      onOffsetChange={onOffsetChange}
       onClose={onClose}
-    >
-      <div className="project-picker-list">
-        {projects.map((project) => (
-          <button
-            className="project-picker-item"
-            type="button"
-            key={project.key}
-            disabled={project.feedStatus !== "live"}
-            onClick={() => onSelect(project)}
-          >
-            <span>{project.project.name}</span>
-            <small>{project.host.label} · {project.project.repo_root}</small>
-          </button>
-        ))}
-      </div>
-    </TaskSurface>
+      onBack={onBack}
+      onSelect={id => {
+        const project = projects.find(project => project.key === id);
+        if (project?.feedStatus === "live") onSelect(project);
+      }}
+    />
   );
 }

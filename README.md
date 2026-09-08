@@ -55,6 +55,17 @@ Threads within each project appear newest first by their original creation date;
 status changes and restored runs do not change that order. Empty projects remain
 available through All projects and New thread.
 
+The floating home menu opens New thread, Archive, Servers, and Settings.
+New thread uses a radial project selector, then a radial agent selector, before
+opening the launch options. Drag around the bottom-right pivot to scroll the arc;
+items stop at the list's ends rather than wrapping. Circular orbs keep their labels
+upright. A flick glides gently, while pulling past an end adds resistance and springs
+back on release. Touch the arc to catch a glide without selecting an orb. Reduced
+motion disables momentum and elasticity. The thin outer arc shows your position.
+Mouse wheel, arrow keys, Home/End, and previous/next buttons also work.
+Back returns one menu tier and preserves the project list position. The selector
+chooses an agent app, not an individual provider model.
+
 Conversations open by default. The header's terminal button opens xterm.js;
 the **Thread actions** menu contains Archive, Stop agent, and available resume
 actions. See the [walkthrough](docs/getting-started.md#4-read-and-interact) for

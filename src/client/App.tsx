@@ -5,6 +5,7 @@ import { ConversationView } from "./ConversationView";
 const TerminalView = lazy(() => import("./TerminalView").then((module) => ({ default: module.TerminalView })));
 import { PlusIcon, ThreadCreationDialog } from "./ThreadCreationDialog";
 import { ThreadLaunchMenu } from "./ThreadLaunchMenu";
+import { RadialMenu } from "./RadialMenu";
 import { SettingsDialog, SettingsIcon } from "./SettingsDialog";
 import { ControlHostsDialog, HostsIcon } from "./ControlHostsDialog";
 import { ConfirmSurface } from "./Surface";
@@ -132,6 +133,8 @@ export function App() {
     creationError,
   } = control;
   const [settings, setSettings] = useState(readAppSettings);
+  const [homeMenuEntry, setHomeMenuEntry] = useState<"launcher" | "back">();
+  const [projectMenuOffset, setProjectMenuOffset] = useState(0);
   const availableAgents = AGENT_KINDS.filter((agent) => Object.values(agentInventories).some(
     (inventory) => inventory.status === "ready" && inventory.agents.includes(agent.kind),
   ));
@@ -242,11 +245,6 @@ export function App() {
           Connected. Open a repository-backed workspace in Herdr to create your first Project and Thread.
         </p>
       )}
-      {liveSessions.filter((feed) => feed.message?.startsWith("Unsupported Herdr protocol")).map((feed) => (
-        <p className="notice error" key={`${feed.host.url}:compatibility`}>
-          <strong>{feed.host.label}:</strong> {feed.message}
-        </p>
-      ))}
       {!paneAction && !creationTarget && actionError && <p className="notice error">{actionError}</p>}
 
       {liveSessions.some((feed) => feed.snapshot) && (
@@ -345,6 +343,37 @@ export function App() {
           )}
         </section>
       )}
+      <button
+        className="home-menu-trigger"
+        type="button"
+        aria-label="Open menu"
+        aria-haspopup="dialog"
+        aria-expanded={Boolean(homeMenuEntry) || projectPickerOpen || Boolean(creationLauncherTarget)}
+        onClick={() => setHomeMenuEntry("launcher")}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+      </button>
+      {homeMenuEntry && (
+        <RadialMenu
+          title="Home"
+          animateEntry={homeMenuEntry === "launcher"}
+          description="What would you like to do?"
+          options={[
+            { id: "new", label: "New thread" },
+            { id: "archive", label: "Archive", detail: `${archivedThreads.length} threads` },
+            { id: "hosts", label: "Servers" },
+            { id: "settings", label: "Settings" },
+          ]}
+          onClose={() => setHomeMenuEntry(undefined)}
+          onSelect={id => {
+            setHomeMenuEntry(undefined);
+            if (id === "new") { setProjectMenuOffset(0); control.openProjectPicker(); }
+            if (id === "archive") control.openArchive();
+            if (id === "hosts") control.openHosts();
+            if (id === "settings") control.openSettings();
+          }}
+        />
+      )}
       {settingsOpen && (
         <SettingsDialog
           settings={settings}
@@ -375,6 +404,9 @@ export function App() {
       {projectPickerOpen && (
         <ProjectPickerScreen
           projects={availableProjects}
+          initialOffset={projectMenuOffset}
+          onOffsetChange={setProjectMenuOffset}
+          onBack={() => { control.closeProjectPicker(); setHomeMenuEntry("back"); }}
           onClose={control.closeProjectPicker}
           onSelect={control.openCreationLauncher}
         />
@@ -401,6 +433,7 @@ export function App() {
               : undefined}
           defaultAgent={settings.defaultAgent}
           onCancel={control.cancelCreationLauncher}
+          onBack={() => { control.cancelCreationLauncher(); control.openProjectPicker(); }}
           onSelect={(agent) => control.openCreation(creationLauncherTarget, agent)}
         />
       )}

@@ -464,7 +464,43 @@ button.thread-options-summary.secondary {
 button.thread-options-summary.secondary:hover:not(:disabled) { background: var(--color-surface-interactive); }
 .quick-thread-options { padding: 2px 2px 0; }
 
-.thread-launcher-dialog {
+.home-menu-trigger,
+.radial-panel {
+  --menu-rest-right: max(32px, env(safe-area-inset-right));
+  --menu-rest-bottom: max(32px, env(safe-area-inset-bottom));
+  --menu-open-right: max(12px, env(safe-area-inset-right));
+  --menu-open-bottom: max(12px, env(safe-area-inset-bottom));
+}
+.home-menu-trigger,
+.radial-hub {
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  padding: 0;
+  border-radius: 50%;
+  box-shadow: 0 6px 28px color-mix(in srgb, var(--color-canvas) 60%, transparent);
+}
+.home-menu-trigger {
+  position: fixed;
+  z-index: 10;
+  width: 72px;
+  height: 72px;
+  right: var(--menu-rest-right);
+  bottom: var(--menu-rest-bottom);
+  transition: width 220ms ease-out, height 220ms ease-out, right 220ms ease-out, bottom 220ms ease-out, opacity 140ms ease-out;
+}
+.home-menu-trigger[aria-expanded="true"] {
+  width: 60px;
+  height: 60px;
+  right: var(--menu-open-right);
+  bottom: var(--menu-open-bottom);
+  opacity: 0;
+  pointer-events: none;
+}
+.home-menu-trigger svg { width: 32px; height: 32px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.shell:has(.home-menu-trigger) { padding-bottom: calc(128px + env(safe-area-inset-bottom)); }
+.radial-dialog {
   position: fixed;
   z-index: 30;
   inset: 0;
@@ -477,93 +513,109 @@ button.thread-options-summary.secondary:hover:not(:disabled) { background: var(-
   border: 0;
   background: transparent;
   color: var(--color-text);
+  overscroll-behavior: contain;
 }
-.thread-launcher-dialog::backdrop {
-  background: color-mix(in srgb, var(--color-canvas) 72%, transparent);
-  backdrop-filter: blur(4px);
+.radial-dialog::backdrop {
+  background: color-mix(in srgb, var(--color-canvas) 84%, transparent);
+  backdrop-filter: blur(5px);
 }
-.thread-launcher {
+.radial-panel {
   position: absolute;
-  right: max(14px, env(safe-area-inset-right));
-  bottom: max(14px, env(safe-area-inset-bottom));
-  width: min(310px, calc(100vw - 28px));
-  height: 300px;
+  right: var(--menu-open-right);
+  bottom: var(--menu-open-bottom);
+  width: min(360px, calc(100vw - 24px));
 }
-.thread-launcher-heading {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 100%;
-  color: var(--color-text-muted);
-  font-size: 12px;
-  text-align: right;
+.radial-dialog[data-presence="entering"] .radial-panel { animation: radial-menu-enter 220ms cubic-bezier(.16, 1, .3, 1) both; }
+.radial-dialog[data-presence="entering"][data-from-launcher]::backdrop { animation: radial-backdrop-enter 180ms ease-out both; }
+.radial-dialog[data-presence="entering"] .radial-option {
+  animation: radial-orb-enter 160ms cubic-bezier(.16, 1, .3, 1) both;
+  animation-delay: calc(var(--orb-order) * 18ms);
 }
-.thread-launcher-heading strong { color: var(--color-text); font-weight: 600; }
-.thread-launcher-empty {
-  position: absolute;
-  top: 48px;
-  right: 0;
-  width: 220px;
-  color: var(--color-text-soft);
-  font-size: 13px;
-  line-height: 1.4;
-  text-align: right;
+.radial-dialog[data-presence="leaving"] .radial-panel {
+  transform-origin: bottom right;
+  animation: radial-menu-exit 120ms cubic-bezier(.4, 0, 1, 1) both;
 }
-.thread-launcher-fan { position: absolute; right: 0; bottom: 0; width: 260px; height: 260px; }
-.thread-launch-agent,
-.thread-launch-close {
+.radial-dialog[data-presence="leaving"][data-dismissing]::backdrop { animation: radial-backdrop-exit 120ms ease-in both; }
+@keyframes radial-menu-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes radial-orb-enter {
+  from { opacity: 0; translate: var(--orb-enter-x) var(--orb-enter-y); scale: .92; }
+  to { opacity: var(--orb-opacity); translate: 0 0; scale: 1; }
+}
+@keyframes radial-menu-exit {
+  from { opacity: var(--menu-exit-opacity, 1); transform: scale(1); }
+  to { opacity: 0; transform: scale(.98); }
+}
+@keyframes radial-backdrop-enter { from { opacity: 0; } to { opacity: 1; } }
+@keyframes radial-backdrop-exit { from { opacity: 1; } to { opacity: 0; } }
+.radial-heading { padding: 0 12px 4px; text-align: right; overflow-wrap: anywhere; }
+.radial-heading h2 { margin: 6px 0; font-size: 20px; font-weight: 600; }
+.radial-heading p { margin: 6px 0; color: var(--color-text-muted); font-size: 12px; line-height: 1.5; }
+.radial-wheel { position: relative; width: 100%; aspect-ratio: 1; touch-action: none; user-select: none; -webkit-user-select: none; outline: none; }
+.radial-track { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.radial-scroll-track { fill: none; stroke: var(--color-border-strong); stroke-width: 2; stroke-linecap: round; }
+.radial-scroll-thumb { fill: none; stroke: var(--color-accent); stroke-width: 3; stroke-linecap: round; }
+.radial-wheel:focus-visible .radial-scroll-track { stroke: var(--color-text-muted); }
+.radial-options { position: absolute; inset: 0; clip-path: polygon(0 0, 91.11% 0, 91.11% 91.11%, 0 91.11%); }
+button.radial-option {
   position: absolute;
-  right: 5px;
-  bottom: 5px;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  width: 27%;
+  height: 27%;
+  padding: 12px 8px;
+  border: 1px solid var(--color-border-strong);
   border-radius: 50%;
-  box-shadow: 0 10px 30px color-mix(in srgb, var(--color-canvas) 60%, transparent);
-}
-.thread-launch-agent {
-  z-index: 1;
-  width: 58px;
-  height: 58px;
-  padding: 0;
-  right: var(--launch-right);
-  bottom: var(--launch-bottom);
-  border-color: var(--color-border-strong);
-  background: var(--color-surface-raised);
+  background: transparent;
+  box-shadow: none;
+  opacity: var(--orb-opacity, 1);
   color: var(--color-text);
-  animation: launch-agent-in 180ms cubic-bezier(.2, .8, .2, 1) both;
-  animation-delay: calc(var(--launch-order) * 24ms);
+  text-align: center;
+  cursor: grab;
 }
-.thread-launch-agent.default { border-color: var(--color-accent); }
-.thread-launch-agent span { font-size: 12px; font-weight: 800; text-transform: uppercase; }
-.thread-launch-agent small {
-  position: absolute;
-  right: calc(100% + 8px);
-  padding: 3px 7px;
-  border-radius: 999px;
-  background: var(--color-surface);
-  color: var(--color-text-soft);
-  font-size: 10px;
-  font-weight: 600;
-  white-space: nowrap;
+button.radial-option:active { cursor: grabbing; }
+button.radial-option:not(:disabled):hover { background: transparent; border-color: var(--color-accent); }
+.radial-option.preferred { border-color: var(--color-accent); }
+.radial-option[aria-disabled="true"] { color: var(--color-text-muted); border-style: dashed; }
+.radial-option span, .radial-option small { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.radial-option span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; white-space: normal; font-size: 13px; line-height: 1.2; font-weight: 650; }
+.radial-option small { white-space: nowrap; }
+.radial-wheel[data-motion="dragging"], .radial-wheel[data-motion="dragging"] .radial-option { cursor: grabbing; }
+.radial-option small { font-size: 10px; font-weight: 400; color: var(--color-text-muted); }
+.radial-option:focus-visible, .radial-hub:focus-visible, .home-menu-trigger:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
+.radial-position { position: absolute; right: 24%; bottom: 3%; width: 35%; margin: 0; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--color-text-soft); }
+.radial-step-controls { position: absolute; right: 0; bottom: 22%; display: flex; gap: 4px; }
+.radial-step-controls button { width: 44px; height: 44px; padding: 0; border-radius: 50%; font-size: 22px; }
+.radial-hub { position: absolute; right: 0; bottom: 0; font-size: 28px; font-weight: 400; }
+.radial-hub.from-launcher { transform-origin: bottom right; animation: radial-hub-enter 220ms ease-out both; }
+@keyframes radial-hub-enter {
+  from { transform: translate(calc(var(--menu-open-right) - var(--menu-rest-right)), calc(var(--menu-open-bottom) - var(--menu-rest-bottom))) scale(1.2); }
+  to { transform: translate(0, 0) scale(1); }
 }
-.thread-launch-close {
-  z-index: 2;
-  width: 64px;
-  height: 64px;
-  padding: 0;
-  transform: rotate(45deg);
+@media (prefers-reduced-motion: reduce) {
+  .home-menu-trigger { transition: none; }
+  .radial-hub.from-launcher,
+  .radial-dialog[data-presence] .radial-panel,
+  .radial-dialog[data-presence] .radial-option,
+  .radial-dialog[data-presence]::backdrop { animation: none; }
 }
-.thread-launch-close svg { width: 22px; height: 22px; }
-.thread-launch-close svg {
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-width: 1.8;
+button.radial-dismiss { position: absolute; left: 12px; bottom: 0; min-height: 44px; padding: 8px 12px; border: 0; font-size: 12px; color: var(--color-text-muted); }
+@media (max-width: 350px) {
+  button.radial-option { padding: 8px 6px; gap: 3px; }
+  .radial-option span { font-size: 12px; }
+  .radial-heading h2 { font-size: 18px; }
+}
+@media (max-height: 480px) and (min-width: 600px) {
+  .radial-panel { width: 580px; display: flex; align-items: flex-start; justify-content: flex-end; }
+  .radial-heading { width: 220px; padding-top: 24px; }
+  .radial-wheel { width: min(360px, calc(100dvh - 24px)); flex: none; }
 }
 
-@keyframes launch-agent-in {
-  from { opacity: 0; transform: scale(.7); }
-}
 .settings-fields input:not([type="checkbox"]),
 .settings-fields select,
 .host-fields input,

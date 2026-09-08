@@ -41,13 +41,13 @@ test("keeps one host usable while another disconnects and recovers", async ({ pa
     const homeLauncher = page.getByRole("dialog", { name: "Choose an agent for Home project" });
     await expect(homeLauncher.getByRole("button", { name: "Codex", exact: true })).toBeVisible();
     await expect(homeLauncher.getByRole("button", { name: "Pi", exact: true })).toHaveCount(0);
-    await homeLauncher.getByRole("button", { name: "Close agent menu" }).click();
+    await homeLauncher.getByRole("button", { name: "Close menu" }).click();
 
     await page.getByRole("button", { name: "New Thread in Second project on Second MZ" }).click();
     const secondLauncher = page.getByRole("dialog", { name: "Choose an agent for Second project" });
     await expect(secondLauncher.getByRole("button", { name: "Pi", exact: true })).toBeVisible();
     await expect(secondLauncher.getByRole("button", { name: "Codex", exact: true })).toHaveCount(0);
-    await secondLauncher.getByRole("button", { name: "Close agent menu" }).click();
+    await secondLauncher.getByRole("button", { name: "Close menu" }).click();
 
     const secondPort = second.port;
     await second.stop();
@@ -66,7 +66,7 @@ test("keeps one host usable while another disconnects and recovers", async ({ pa
   }
 });
 
-test("opens the mobile task composer through the agent fan", async ({ page }) => {
+test("opens the mobile task composer through the radial agent selector", async ({ page }) => {
   let controlHosts: readonly ControlHost[] = [];
   const home = new FakeBridge("Mobile MZ", "Mobile project", () => controlHosts, true);
   const homeUrl = await home.start();

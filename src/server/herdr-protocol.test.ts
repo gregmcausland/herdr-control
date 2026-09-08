@@ -31,8 +31,8 @@ function snapshotResponse() {
   return {
     result: {
       snapshot: {
-        version: "0.8.0",
-        protocol: 19,
+        version: "0.9.0",
+        protocol: 22,
         focused_workspace_id: "w1",
         focused_tab_id: "w1:t1",
         focused_pane_id: "w1:p1",
@@ -72,8 +72,8 @@ describe("Herdr session adaptation", () => {
     const snapshot = sessionSnapshotFromHerdrResponse(snapshotResponse());
 
     expect(snapshot).toMatchObject({
-      version: "0.8.0",
-      protocol: 19,
+      version: "0.9.0",
+      protocol: 22,
       focused_pane_id: "w1:p1",
       workspaces: [{ workspace_id: "w1", worktree: { repo_key: "/projects/control/.git" } }],
       tabs: [{ tab_id: "w1:t1", workspace_id: "w1" }],
